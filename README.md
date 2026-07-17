@@ -519,6 +519,7 @@ City4CFD usage and integration:
 - [ ] Include surface layers and building footprints in the outer domain without reconstructing any explicit feature.
 - [ ] Integrate mesh generation (`blockMesh` + `snappyHexMesh`).
 - [ ] Add a test-case preparation stage that produces a ready-to-run OpenFOAM case with a `snappyHexMesh`-based mesh workflow.
+- [ ] Make `point-cloud` stage parallelisable
 
 ## FIXEs
 - [ ] Decide the public per-stage help/input contract (shared options versus stage-specific options) before expanding CLI help functions.
