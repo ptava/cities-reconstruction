@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cities-reconstruction"
+version = "0.1.0"
+description = "City geometry reconstruction pipeline scaffold for CFD-ready OpenFOAM domains."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "cities-reconstruction contributors" },
+]
+dependencies = [
+    "shapely>=2.1.2",
+]
+
+[dependency-groups]
+dev = [
+  "cadquery>=2.7,<3",
+  "pytest>=8.0",
+]
+
+[project.scripts]
+cities-reconstruction = "cities_reconstruction.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cities_reconstruction"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -1,0 +1,837 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.25374636754776,
+          43.776824698980256
+        ]
+      },
+      "properties": {
+        "id": "AP-001",
+        "kind": "air_purifier",
+        "model": "compact_octagonal_tower",
+        "height_m": 4.0,
+        "width_m": 1.5,
+        "depth_m": 1.5,
+        "rotation_deg": 0.0,
+        "street": "Piazza del Mercato Centrale",
+        "tree_a": "MC-031",
+        "tree_b": "MC-028"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253676587225545,
+          43.77687575817813
+        ]
+      },
+      "properties": {
+        "id": "AP-002",
+        "kind": "air_purifier",
+        "model": "compact_four_side_tower",
+        "height_m": 4.0,
+        "width_m": 1.5,
+        "depth_m": 1.5,
+        "rotation_deg": 0.0,
+        "street": "Piazza del Mercato Centrale",
+        "tree_a": "MC-032",
+        "tree_b": "MC-030"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253955707801511,
+          43.77667152114359
+        ]
+      },
+      "properties": {
+        "id": "AP-003",
+        "kind": "air_purifier",
+        "model": "compact_octagonal_tower",
+        "height_m": 3.6,
+        "width_m": 1.35,
+        "depth_m": 1.35,
+        "rotation_deg": 0.0,
+        "street": "Piazza del Mercato Centrale",
+        "tree_a": "MC-027",
+        "tree_b": "MC-023"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253964868909533,
+          43.77662366646023
+        ]
+      },
+      "properties": {
+        "id": "AP-004",
+        "kind": "air_purifier",
+        "model": "compact_four_side_tower",
+        "height_m": 3.8,
+        "width_m": 1.4,
+        "depth_m": 1.3,
+        "rotation_deg": 0.0,
+        "street": "Piazza del Mercato Centrale",
+        "tree_a": "MC-017",
+        "tree_b": "MC-018"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253532128717112,
+          43.77694954902234
+        ]
+      },
+      "properties": {
+        "id": "AP-005",
+        "kind": "air_purifier",
+        "model": "compact_octagonal_tower",
+        "height_m": 4.4,
+        "width_m": 1.6,
+        "depth_m": 1.6,
+        "rotation_deg": 0.0,
+        "street": "Piazza del Mercato Centrale",
+        "tree_a": "MC-033",
+        "tree_b": "MC-032"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253951183268152,
+          43.776577063016816
+        ]
+      },
+      "properties": {
+        "id": "AP-006",
+        "kind": "air_purifier",
+        "model": "compact_four_side_tower",
+        "height_m": 4.2,
+        "width_m": 1.55,
+        "depth_m": 1.45,
+        "rotation_deg": 0.0,
+        "street": "Piazza del Mercato Centrale",
+        "tree_a": "MC-019",
+        "tree_b": "MC-015"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.252161989076733,
+          43.77705225882375
+        ]
+      },
+      "properties": {
+        "id": "MC-001",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.25230944774099,
+          43.77689291589984
+        ]
+      },
+      "properties": {
+        "id": "MC-002",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.252457326858051,
+          43.77673377756012
+        ]
+      },
+      "properties": {
+        "id": "MC-003",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.252605205199577,
+          43.776574639041705
+        ]
+      },
+      "properties": {
+        "id": "MC-004",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.252753082765578,
+          43.776415500344584
+        ]
+      },
+      "properties": {
+        "id": "MC-005",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.25289975249543,
+          43.77625577657911
+        ]
+      },
+      "properties": {
+        "id": "MC-006",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253046242737044,
+          43.776095966039705
+        ]
+      },
+      "properties": {
+        "id": "MC-007",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253192732207523,
+          43.775936155325056
+        ]
+      },
+      "properties": {
+        "id": "MC-008",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253339220906879,
+          43.775776344435165
+        ]
+      },
+      "properties": {
+        "id": "MC-009",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253486337868596,
+          43.77561683706983
+        ]
+      },
+      "properties": {
+        "id": "MC-010",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via dell'Ariento",
+        "road_id": "corridor",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253114670665592,
+          43.77708017880469
+        ]
+      },
+      "properties": {
+        "id": "MC-011",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via Panicale",
+        "road_id": "paved_row",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.25294733535339,
+          43.77700059298275
+        ]
+      },
+      "properties": {
+        "id": "MC-012",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via Panicale",
+        "road_id": "paved_row",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.252780000479707,
+          43.776921006905056
+        ]
+      },
+      "properties": {
+        "id": "MC-013",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via Panicale",
+        "road_id": "paved_row",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.252612666044536,
+          43.77684142057157
+        ]
+      },
+      "properties": {
+        "id": "MC-014",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via Panicale",
+        "road_id": "paved_row",
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.254035304223212,
+          43.7763503953702
+        ]
+      },
+      "properties": {
+        "id": "MC-015",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.254408447330263,
+          43.77652894426839
+        ]
+      },
+      "properties": {
+        "id": "MC-016",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.254026360086012,
+          43.77645820338694
+        ]
+      },
+      "properties": {
+        "id": "MC-017",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.254150741097456,
+          43.77651771983177
+        ]
+      },
+      "properties": {
+        "id": "MC-018",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.254275122352695,
+          43.77657723613524
+        ]
+      },
+      "properties": {
+        "id": "MC-019",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253893034937372,
+          43.77650649481153
+        ]
+      },
+      "properties": {
+        "id": "MC-020",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.254017415924572,
+          43.7765660114018
+        ]
+      },
+      "properties": {
+        "id": "MC-021",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.25414179715557,
+          43.7766255278507
+        ]
+      },
+      "properties": {
+        "id": "MC-022",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253884090532134,
+          43.7766143028204
+        ]
+      },
+      "properties": {
+        "id": "MC-023",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.25400847173889,
+          43.776673819414746
+        ]
+      },
+      "properties": {
+        "id": "MC-024",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.255252297215524,
+          43.77726897758327
+        ]
+      },
+      "properties": {
+        "id": "MC-025",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via Sant'Orsola",
+        "road_id": 20016,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.25375076492014,
+          43.776662594087625
+        ]
+      },
+      "properties": {
+        "id": "MC-026",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253875146102649,
+          43.7767221108274
+        ]
+      },
+      "properties": {
+        "id": "MC-027",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253741820246853,
+          43.77677040208864
+        ]
+      },
+      "properties": {
+        "id": "MC-028",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253866201648924,
+          43.776829918832505
+        ]
+      },
+      "properties": {
+        "id": "MC-029",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.2536084941715,
+          43.77681869319845
+        ]
+      },
+      "properties": {
+        "id": "MC-030",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253732875549323,
+          43.776878210087766
+        ]
+      },
+      "properties": {
+        "id": "MC-031",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253599549230167,
+          43.77692650119163
+        ]
+      },
+      "properties": {
+        "id": "MC-032",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253466222691452,
+          43.77697479214408
+        ]
+      },
+      "properties": {
+        "id": "MC-033",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Piazza del Mercato Centrale",
+        "road_id": 13981,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.252150840450925,
+          43.77724207748416
+        ]
+      },
+      "properties": {
+        "id": "MC-034",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via Nazionale",
+        "road_id": 18404,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.252515036916456,
+          43.77752844045679
+        ]
+      },
+      "properties": {
+        "id": "MC-035",
+        "kind": "tree",
+        "model": "large_round_broadleaf",
+        "trunk_diameter_m": 0.12,
+        "street": "Via Nazionale",
+        "road_id": 18404,
+        "scenario": "urban_planning",
+        "species": "Tilia"
+      }
+    }
+  ]
+}

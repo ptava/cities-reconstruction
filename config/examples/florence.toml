@@ -1,0 +1,336 @@
+# Fully annotated Florence configuration
+# ======================================
+#
+# This file is both a runnable example and the reference for every TOML
+# parameter currently supported by cities-reconstruction. Relative paths are
+# resolved from this file's directory (`config/examples`), not from the shell's
+# current working directory. Keep optional alternatives commented until used.
+# Validate edits with:
+#   uv run cities-reconstruction validate-config --config config/examples/florence.toml
+
+[region]
+# Human-readable label copied into reports, manifests, and preview titles.
+name = "Florence example"
+# Geographic centre in decimal degrees (WGS84 longitude/latitude semantics).
+center_lat = 43.7696
+center_lon = 11.2558
+# Metric output CRS. The implemented DTM/DSM and tree stages currently require
+# EPSG:25832 even though the parser accepts a non-empty CRS string.
+crs = "EPSG:25832"
+# Optional inner diameter in metres. When present, features inside it form the
+# primary reconstruction ROI and the surrounding area up to outer_diameter_m
+# is contextual terrain. To treat the entire outer ROI uniformly, comment out
+# this line; do not set it equal to outer_diameter_m as a substitute.
+inner_diameter_m = 300.0
+# Required total retrieval/clipping diameter in metres. It must be positive and
+# no smaller than inner_diameter_m when the inner diameter is enabled.
+outer_diameter_m = 500.0
+
+[inputs]
+# Overpass API endpoint, positive per-request timeout, total attempt count, and
+# initial retry delay in seconds. HTTP 429/5xx responses and network timeouts
+# are retried with exponential backoff; non-transient HTTP errors fail without
+# retrying. The endpoint can be replaced with a compatible Overpass instance.
+overpass_url = "https://overpass-api.de/api/interpreter"
+overpass_timeout_s = 60.0
+overpass_max_attempts = 3
+overpass_retry_backoff_s = 2.0
+
+# DTM and DSM folders containing matching ESRI ASCII-grid tiles. Both are
+# required by the implemented point-cloud stage and must use the configured
+# metric CRS. The DSM is split into building and optional tree points using the
+# DTM elevations and stage-1 footprints.
+dtm_directory = "../../docs/assets/dtm/DTM_2023"
+dsm_directory = "../../docs/assets/dsm/DSM_2023"
+
+# Reserved legacy input for one prebuilt PLY. It is shown for schema
+# completeness but MUST remain commented: City4CFD needs separate ground and
+# building clouds, so the current point-cloud stage rejects this single-file
+# form. Use the DTM/DSM pair above.
+# point_cloud_path = "../../path/to/input.ply"
+
+# Non-negative distance in metres used to remove OSM tree nodes duplicated by
+# supplemental tree points. It is still required when no supplemental tree
+# shapefile is configured.
+tree_overlap_tolerance_m = 2.0
+
+# Optional PNG canopy/vegetation overlay. Setting it activates DSM tree-point
+# filtering. A candidate may be supported by either canopy-coloured pixels or
+# a nearby stage-1 natural=tree point; roof-relative and local-relief checks
+# then protect building roofs and flat green roofs. If omitted, no DSM tree
+# cloud is produced and elevated DSM cells inside footprints remain building
+# candidates. The same value can be overridden for one point-cloud invocation
+# with `--tree-canopy-overlay PATH`.
+# tree_canopy_overlay_path = "../../outputs/florence/01_shapefiles/imagery/regione_toscana_ofc_rt_orthophoto_2024_2025.png"
+
+# Optional terrain OBJ or ASCII STL used to set tree-base elevations. Geometry
+# must be in the local City4CFD XY frame. For City4CFD runs with semantic
+# SurfaceLayer outputs, use the generated Mesh_Terrain_Combined.obj rather than
+# residual Mesh_Terrain.obj. This can also be supplied for one trees invocation
+# with `--tree-terrain-geometry PATH`.
+# tree_terrain_geometry_path = "../../outputs/florence/03_city_models/city4cfd_output/Mesh_Terrain_Combined.obj"
+
+[shapefiles]
+# Ordered Stage 1 rules that associate OSM/Overpass tags with output feature
+# categories. Rules are checked from top to bottom; the first matching rule
+# wins. A match expression written as "key" accepts any value for that tag,
+# while "key=value" accepts only the exact value. Reorder or edit these rules
+# to customize classification without changing Python code.
+# Contributing polygons are then made mutually disjoint in this order. An
+# optional "category:group_tag" entry can precede its category-wide fallback;
+# here detailed building parts retain their geometry and parent buildings are
+# clipped around them.
+surface_precedence = [
+    "buildings:building_part", "buildings", "water",
+    "supplemental:green_areas", "green_areas",
+    "supplemental:streets", "roads", "concrete", "other_terrain",
+]
+
+# Optional municipal shapefiles supplement incomplete OSM data. Add, remove,
+# or disable entries without changing Python code, and reference a polygon
+# input as "supplemental:<name>" when it needs source-specific priority.
+[[shapefiles.supplemental]]
+name = "streets"
+path = "../../docs/assets/data/florence_opendata/streets/areestradaliPolygon.shp"
+crs = "EPSG:3003"
+category = "roads"
+group_tag = "street_area"
+enabled = true
+
+[[shapefiles.supplemental]]
+name = "green_areas"
+path = "../../docs/assets/data/florence_opendata/green_areas/aree_verdi.shp"
+crs = "EPSG:3003"
+category = "green_areas"
+group_tag = "green_area"
+enabled = true
+
+[[shapefiles.supplemental]]
+name = "florence_tree_inventory"
+path = "../../docs/assets/data/florence_opendata/trees_diameter/trees.shp"
+crs = "EPSG:3003"
+category = "trees"
+enabled = true
+
+# Externally authored planning scenarios are portable mixed Point GeoJSON.
+# This fixture is additive; its points fall outside the default example ROI
+# and are reported as outside until the region is centred on Mercato Centrale.
+[[urban_planning.inputs]]
+name = "mercato_centrale"
+path = "../../docs/assets/data/urban_planning/mercato_centrale/urban_plan.geojson"
+# Optional coordinate CRS for this GeoJSON. It defaults to EPSG:4326
+# (longitude/latitude); set it to EPSG:3857 for Web Mercator x/y metres.
+# crs = "EPSG:4326"
+enabled = true
+
+[[shapefiles.classification_rules]]
+category = "buildings"
+group_tag = "building"
+match_any = ["building"]
+
+[[shapefiles.classification_rules]]
+category = "buildings"
+group_tag = "building_part"
+match_any = ["building:part"]
+
+[[shapefiles.classification_rules]]
+category = "trees"
+group_tag = "tree"
+match_any = ["natural=tree"]
+
+[[shapefiles.classification_rules]]
+category = "water"
+group_tag = "water"
+match_any = [
+    "natural=water", "natural=wetland", "natural=bay", "water", "waterway",
+    "landuse=reservoir", "landuse=basin",
+]
+
+[[shapefiles.classification_rules]]
+category = "green_areas"
+group_tag = "green_area"
+match_any = [
+    "landuse=grass", "landuse=forest", "landuse=meadow",
+    "landuse=recreation_ground", "landuse=village_green", "landuse=allotments",
+    "landuse=orchard", "landuse=vineyard", "landuse=plant_nursery",
+    "landuse=cemetery", "leisure=park", "leisure=garden", "leisure=pitch",
+    "leisure=golf_course", "leisure=nature_reserve", "natural=wood",
+    "natural=scrub", "natural=grassland", "natural=heath", "natural=tree_row",
+]
+
+[[shapefiles.classification_rules]]
+category = "roads"
+group_tag = "road"
+match_any = ["highway"]
+
+[[shapefiles.classification_rules]]
+category = "concrete"
+group_tag = "paved_ground"
+match_any = [
+    "surface=asphalt", "surface=chipseal", "surface=cobblestone",
+    "surface=compacted", "surface=concrete", "surface=concrete:lanes",
+    "surface=concrete:plates", "surface=fine_gravel", "surface=gravel",
+    "surface=paved", "surface=paving_stones", "surface=sett", "surface=stone",
+    "surface=tiles", "surface=unpaved", "amenity=parking",
+    "amenity=marketplace", "amenity=bicycle_parking",
+    "amenity=motorcycle_parking", "landuse=industrial", "landuse=commercial",
+    "landuse=retail", "landuse=construction", "landuse=railway",
+    "landuse=brownfield", "place=square", "area=yes",
+]
+
+[[shapefiles.classification_rules]]
+category = "other_terrain"
+group_tag = "other_terrain"
+match_any = [
+    "landuse", "leisure", "natural", "amenity", "tourism", "historic",
+    "place", "surface", "area", "man_made",
+]
+
+[trees]
+# Fallback species for tree records without a usable species/genus tag. The
+# normalized name must exist in category_mapping_path.
+default = "Tilia"
+# Required parametric category-model library and required mapping from source
+# species labels to one of those model categories.
+model_library_path = "../../docs/assets/tree_models/categories/tree_categories.json"
+category_mapping_path = "../../docs/assets/data/florence_opendata/trees_diameter/species_category_mapping.json"
+
+[air_purifiers]
+# Required when running the air-purifiers stage unless --model-library supplies
+# a one-run override. Source STL paths inside the catalog are catalog-relative.
+model_library_path = "../../docs/assets/air_purifier_towers/parameters.json"
+# Optional local-frame OBJ or ASCII STL. If neither this key nor the
+# --terrain-geometry override is supplied, every purifier base uses z=0.
+# terrain_geometry_path = "../../outputs/florence/03_city_models/city4cfd_output/Mesh_Terrain_Combined.obj"
+
+[city_models]
+# City4CFD building level of detail: "1.2" extrudes one height, "1.3" supports
+# stepped flat roofs, and "2.2" reconstructs sloped roof planes. LoD1.3/2.2
+# require a clean, dense building point cloud.
+lod = "2.2"
+# Explicit circular domain-boundary radius in metres around point_of_interest.
+# Omit this key to write null and let City4CFD derive the domain using its BPG
+# controls. The value must cover the geometry intended for reconstruction.
+domain_bnd = 250.0
+# Fallback clearance above local terrain for OSM building=roof polygons without
+# a valid non-negative min_height property/tag. Explicit min_height values take
+# precedence. Ordinary buildings receive a zero base offset.
+building_roof_default_base_height_m = 2.0
+# Closed-domain top elevation/height in metres. BPG-derived domain sizing may
+# override it; it matters when reconstruct_boundaries is true.
+top_height = 300.0
+# Best-practice-guideline domain shape: "Rectangle", "Round", or "Oval".
+bnd_type_bpg = "Rectangle"
+# Enable City4CFD blockage-ratio domain sizing. The application currently
+# exposes only boolean true/false, although City4CFD itself also accepts a
+# numeric target percentage.
+bpg_blockage_ratio = false
+# Horizontal flow vector [x, y]. Required for Rectangle/Oval domains and for a
+# Round domain when blockage-ratio handling is enabled.
+flow_direction = [1.0, 1.0]
+# Percentage used to extend (>0) or contract (<0) the mainly flat buffer around
+# the domain boundary; 0 disables the additional buffer.
+buffer_region = 20.0
+# Create side and top surfaces so City4CFD outputs a closed computational
+# domain. Set false when only city/terrain surfaces are desired.
+reconstruct_boundaries = true
+# Percentage of terrain points randomly removed by City4CFD. Use 0 for no
+# thinning; larger values reduce cost but also terrain detail.
+terrain_thinning = 10.0
+# Percentile used as the representative building height, especially for LoD1.2
+# extrusion and reconstruction fallbacks. Valid practical values are 0-100.
+building_percentile = 90.0
+# Maximum footprint-edge segment length in metres after subdivision. This
+# limits abrupt building/terrain interpolation jumps; it does not tune roofs.
+edge_max_len = 5.0
+# Base name and City4CFD mesh format: "obj", "stl", or "cityjson".
+output_file_name = "Mesh"
+output_format = "obj"
+# true writes buildings, residual terrain, and semantic terrain layers as
+# separate files. For OBJ surface-layer runs, this application additionally
+# writes <output_file_name>_Terrain_Combined.obj for downstream tree placement.
+output_separately = true
+# Enable City4CFD's reconstruction log and choose its filename.
+output_log = true
+log_file = "logFile.log"
+# Optional Docker fallback image. Comment it out to use
+# CITY4CFD_DOCKER_IMAGE or the application's default image.
+docker_image = "tudelft3d/city4cfd:0.8.0"
+
+[city_models.smooth_terrain]
+# Terrain smoothing iterations (positive integer; City4CFD suggests roughly
+# 1-10) and the positive optimized point limit used during smoothing. Higher
+# values retain detail but increase time and memory.
+iterations = 1
+max_pts = 100000
+
+[city_models.reconstruction_region]
+# Positive reconstruction radius in metres around the region centre. Buildings
+# outside this radius remain context rather than receiving the requested LoD.
+influence_region_m = 150.0
+# LoD1.3/2.2 graph-cut complexity bias from 0 (simplest roofs) to 1 (most
+# complex). Lower values are usually safer for noisy or sparse DSM input.
+complexity_factor = 0.6
+# Run City4CFD geometric validity checks and report invalid reconstructions.
+# This reports problems but does not enforce a fallback; enforce_validity is a
+# City4CFD option that is not yet exposed by this application's TOML schema.
+validate = true
+
+[city_models.filters]
+# Positive minimum footprint area in square metres and positive minimum
+# building height in metres. Smaller footprints are skipped; lower buildings
+# are reconstructed at the minimum height according to City4CFD policy.
+min_area = 4.0
+min_height = 2.0
+
+[imagery]
+# Imagery is optional QA evidence for stage 1. To disable network imagery,
+# either set every source's enabled=false or remove all [[imagery.sources]]
+# blocks and put `sources = []` directly below [imagery]. Only WMS sources in
+# EPSG:4326 are currently supported. Add more sources by repeating the complete
+# [[imagery.sources]] table.
+
+[[imagery.sources]]
+# Human-readable source name used in diagnostics and output filenames.
+name = "Regione Toscana OFC_RT orthophoto 2024-2025"
+# Currently the only accepted source type is "wms".
+type = "wms"
+# false keeps the source configured but skips its request.
+enabled = true
+# WMS endpoint, layer identifier, request CRS and MIME image format.
+url = "https://www502.regione.toscana.it/ows_ofc/com.rt.wms.RTmap/wms?map=owsofc_rt&"
+layer = "rt_ofc.5k24.32bit"
+crs = "EPSG:4326"
+format = "image/png"
+# Positive output raster dimensions in pixels.
+width = 1200
+height = 1200
+# Optional WMS style string; empty requests the server's default style.
+style = ""
+# Request a transparent background when supported by the WMS server.
+transparent = false
+
+[[imagery.sources]]
+name = "Regione Toscana FOTOTECA aerial images 2024-2025"
+type = "wms"
+enabled = true
+url = "https://www502.regione.toscana.it/wmsraster/com.rt.wms.RTmap/wms?map=wmsfotogrammi&"
+layer = "rt_fotogrammi.2024.rt"
+crs = "EPSG:4326"
+format = "image/png"
+width = 1200
+height = 1200
+style = ""
+transparent = false
+
+[output]
+# Root for numbered stage directories and reports. Relative paths are resolved
+# from config/examples. Choose a different directory to preserve an older run.
+root_directory = "../../outputs/florence"
+
+# Common one-run overrides (these do not edit this file):
+#   point-cloud --tree-canopy-overlay PATH
+#   trees       --tree-terrain-geometry PATH
+#   air-purifiers --model-library PATH [--terrain-geometry PATH]
+#   city-models --city-models-<parameter> VALUE
+# See `uv run cities-reconstruction run-stage --help` for every CLI override.

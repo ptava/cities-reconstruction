@@ -1,0 +1,26 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# scripts
+tools/
+
+# testing
+outputs/
+
+# codex
+.agents/
+.superpowers/
+.codex
+AGENTS.md
+docs/superpowers/
+
+# data
+docs/assets/dsm/
+docs/assets/dtm/

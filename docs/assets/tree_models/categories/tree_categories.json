@@ -1,0 +1,199 @@
+{
+  "category_count": 9,
+  "models": [
+    {
+      "aliases": [
+        "columnar_conifer",
+        "columnar conifer",
+        "fastigiate conifer",
+        "cypress form"
+      ],
+      "basis": "Narrow vertical conifer/cypress form for fastigiate urban trees.",
+      "crown_base_fraction": 0.2,
+      "crown_shape": "conical",
+      "default_crown_radius_m": 2.3,
+      "default_height_m": 18.0,
+      "default_trunk_radius_m": 0.1449,
+      "geometry_path": "models/columnar_conifer.obj",
+      "label": "Columnar/fastigiate conifer",
+      "median_source_diameter_m": 0.2899,
+      "name": "columnar_conifer",
+      "slug": "columnar_conifer",
+      "source_record_count": 9445
+    },
+    {
+      "aliases": [
+        "fastigiate_broadleaf",
+        "fastigiate broadleaf",
+        "columnar broadleaf"
+      ],
+      "basis": "Narrow upright broadleaf form for fastigiate cultivars.",
+      "crown_base_fraction": 0.34,
+      "crown_shape": "columnar",
+      "default_crown_radius_m": 2.4,
+      "default_height_m": 14.0,
+      "default_trunk_radius_m": 0.085,
+      "geometry_path": "models/fastigiate_broadleaf.obj",
+      "label": "Fastigiate/columnar broadleaf",
+      "median_source_diameter_m": 0.1699,
+      "name": "fastigiate_broadleaf",
+      "slug": "fastigiate_broadleaf",
+      "source_record_count": 536
+    },
+    {
+      "aliases": [
+        "generic_round_broadleaf",
+        "generic broadleaf"
+      ],
+      "basis": "Fallback broadleaf category when genus-specific form is not assigned.",
+      "crown_base_fraction": 0.35,
+      "crown_shape": "ellipsoid",
+      "default_crown_radius_m": 3.5,
+      "default_height_m": 11.0,
+      "default_trunk_radius_m": 0.06,
+      "geometry_path": "models/generic_round_broadleaf.obj",
+      "label": "Generic round broadleaf",
+      "median_source_diameter_m": 0.0799,
+      "name": "generic_round_broadleaf",
+      "slug": "generic_round_broadleaf",
+      "source_record_count": 2329
+    },
+    {
+      "aliases": [
+        "large_round_broadleaf",
+        "large round broadleaf",
+        "decurrent broadleaf",
+        "round broadleaf"
+      ],
+      "basis": "Idealised decurrent broadleaf crown: rounded ellipsoid crown and moderate live-crown base.",
+      "crown_base_fraction": 0.34,
+      "crown_shape": "ellipsoid",
+      "default_crown_radius_m": 5.2,
+      "default_height_m": 16.0,
+      "default_trunk_radius_m": 0.1399,
+      "geometry_path": "models/large_round_broadleaf.obj",
+      "label": "Large round/decurrent broadleaf",
+      "median_source_diameter_m": 0.2706,
+      "name": "large_round_broadleaf",
+      "slug": "large_round_broadleaf",
+      "source_record_count": 50550
+    },
+    {
+      "aliases": [
+        "palm_tuft",
+        "palm",
+        "tuft crown"
+      ],
+      "basis": "Palm-like tall bare stem with compact crown tuft.",
+      "crown_base_fraction": 0.74,
+      "crown_shape": "tuft",
+      "default_crown_radius_m": 2.0,
+      "default_height_m": 11.0,
+      "default_trunk_radius_m": 0.075,
+      "geometry_path": "models/palm_tuft.obj",
+      "label": "Palm tuft",
+      "median_source_diameter_m": 0.1499,
+      "name": "palm_tuft",
+      "slug": "palm_tuft",
+      "source_record_count": 220
+    },
+    {
+      "aliases": [
+        "pyramidal_conifer",
+        "pyramidal conifer",
+        "excurrent conifer",
+        "conical conifer"
+      ],
+      "basis": "Idealised excurrent conoid tree architecture for conifers.",
+      "crown_base_fraction": 0.24,
+      "crown_shape": "conical",
+      "default_crown_radius_m": 3.9,
+      "default_height_m": 16.0,
+      "default_trunk_radius_m": 0.18,
+      "geometry_path": "models/pyramidal_conifer.obj",
+      "label": "Pyramidal/excurrent conifer",
+      "median_source_diameter_m": 0.5097,
+      "name": "pyramidal_conifer",
+      "slug": "pyramidal_conifer",
+      "source_record_count": 1896
+    },
+    {
+      "aliases": [
+        "small_round_broadleaf",
+        "small round broadleaf",
+        "ornamental broadleaf",
+        "fruit tree"
+      ],
+      "basis": "Compact round crown for smaller fruit, ornamental, and shrub-like urban trees.",
+      "crown_base_fraction": 0.36,
+      "crown_shape": "rounded",
+      "default_crown_radius_m": 2.8,
+      "default_height_m": 8.5,
+      "default_trunk_radius_m": 0.0684,
+      "geometry_path": "models/small_round_broadleaf.obj",
+      "label": "Small ornamental or fruit broadleaf",
+      "median_source_diameter_m": 0.1369,
+      "name": "small_round_broadleaf",
+      "slug": "small_round_broadleaf",
+      "source_record_count": 13716
+    },
+    {
+      "aliases": [
+        "umbrella_pine",
+        "umbrella pine",
+        "pinus pinea form"
+      ],
+      "basis": "Mediterranean stone pine umbrella canopy with raised crown base.",
+      "crown_base_fraction": 0.58,
+      "crown_shape": "umbrella",
+      "default_crown_radius_m": 5.3,
+      "default_height_m": 14.0,
+      "default_trunk_radius_m": 0.3024,
+      "geometry_path": "models/umbrella_pine.obj",
+      "label": "Umbrella pine",
+      "median_source_diameter_m": 0.6048,
+      "name": "umbrella_pine",
+      "slug": "umbrella_pine",
+      "source_record_count": 3466
+    },
+    {
+      "aliases": [
+        "weeping_broadleaf",
+        "weeping broadleaf",
+        "pendulous broadleaf"
+      ],
+      "basis": "Low rounded proxy for pendulous cultivars, preserving larger lateral spread.",
+      "crown_base_fraction": 0.42,
+      "crown_shape": "ellipsoid",
+      "default_crown_radius_m": 3.8,
+      "default_height_m": 9.0,
+      "default_trunk_radius_m": 0.095,
+      "geometry_path": "models/weeping_broadleaf.obj",
+      "label": "Weeping broadleaf",
+      "median_source_diameter_m": 0.1799,
+      "name": "weeping_broadleaf",
+      "slug": "weeping_broadleaf",
+      "source_record_count": 125
+    }
+  ],
+  "name": "Idealised tree category model library",
+  "references": [
+    {
+      "title": "Crown botany: excurrent conoid and decurrent round crown habits",
+      "url": "https://en.wikipedia.org/wiki/Crown_%28botany%29"
+    },
+    {
+      "title": "Tree crown measurement: crown spread, crown form, and crown-volume simplification",
+      "url": "https://en.wikipedia.org/wiki/Tree_crown_measurement"
+    },
+    {
+      "title": "Tree allometry: diameter relationships used for idealised tree dimensions",
+      "url": "https://en.wikipedia.org/wiki/Tree_allometry"
+    },
+    {
+      "title": "Common landscape tree shape categories: columnar, pyramidal, globe, vase, spreading, weeping",
+      "url": "https://www.bhg.com/gardening/trees-shrubs-vines/trees/selecting-trees-by-shape/"
+    }
+  ],
+  "source_mapping": "docs/assets/data/florence_opendata/trees_diameter/species_category_mapping.json"
+}

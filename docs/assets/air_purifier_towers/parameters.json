@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "name": "compact_octagonal_tower",
+      "kind": "octagonal",
+      "output_path": "models/compact_octagonal_tower.stl",
+      "height_m": 4.0,
+      "base_width_m": 1.5,
+      "body_top_width_m": 1.2,
+      "inlet_bottom_m": 0.3,
+      "inlet_top_m": 1.3,
+      "exhaust_height_m": 0.3,
+      "outlet_width_m": 0.72,
+      "linear_tolerance_m": 0.002,
+      "angular_tolerance_rad": 0.1
+    },
+    {
+      "name": "compact_four_side_tower",
+      "kind": "four_side",
+      "output_path": "models/compact_four_side_tower.stl",
+      "height_m": 4.0,
+      "width_m": 1.5,
+      "depth_m": 1.5,
+      "inlet_width_m": 0.8,
+      "inlet_height_m": 1.0,
+      "inlet_base_m": 0.3,
+      "linear_tolerance_m": 0.002,
+      "angular_tolerance_rad": 0.1
+    }
+  ]
+}
