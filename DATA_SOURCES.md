@@ -7,6 +7,8 @@ project. Statuses describe the current Florence example as verified on
 ## Status
 
 - **Local**: a copy is currently present under `docs/assets`.
+- **Download required**: not included in the repository; download it before
+  running the relevant stage.
 - **Runtime**: requested from the provider when the relevant stage runs; not
   stored in the source tree.
 
@@ -15,23 +17,40 @@ project. Statuses describe the current Florence example as verified on
 | Source | Provider | Status | Project use | License |
 |---|---|---|---|---|
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) via [Overpass API](https://overpass-api.de/) | OpenStreetMap contributors | Runtime | Buildings, surfaces, roads, water and trees retrieved by `shapefiles` | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) |
-| [DTM 2023](https://opendata.comune.fi.it/page_dataset_show?id=dtm-lidar-2023) | Comune di Firenze | Local | Ground elevations for point-cloud generation | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| [DSM 2023](https://opendata.comune.fi.it/page_dataset_show?id=dsm-lidar-2023) | Comune di Firenze | Local | Surface elevations for point-cloud generation | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| [DTM 2023](https://opendata.comune.fi.it/page_dataset_show?id=dtm-lidar-2023) | Comune di Firenze | Download required | Ground elevations for point-cloud generation | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| [DSM 2023](https://opendata.comune.fi.it/page_dataset_show?id=dsm-lidar-2023) | Comune di Firenze | Download required | Surface elevations for point-cloud generation | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | [Aree stradali](https://opendata.comune.fi.it/page_dataset_show?id=a44ea551-7b09-4d0d-af64-7c08159e9316) | Comune di Firenze | Local | Supplemental road polygons | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | [Aree verdi](https://opendata.comune.fi.it/page_dataset_show?id=d0ffa579-e002-4dc3-94b4-d69207cae114) | Comune di Firenze | Local | Supplemental green-area polygons | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | [Alberi](https://opendata.comune.fi.it/page_dataset_show?id=42cd1073-521f-4040-9491-e993d03663a4) | Comune di Firenze | Local | Supplemental municipal tree inventory | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | [OFC_RT orthophotos](https://www502.regione.toscana.it/geoscopio/servizi/wms/OFC_RT.htm), layer `rt_ofc.5k24.32bit` | Regione Toscana | Runtime | Optional graphical QA imagery | Creative Commons; verify the layer-specific terms before redistribution |
 | [FOTOTECA aerial images](https://www502.regione.toscana.it/geoscopio/servizi/wms/FOTOTECA.htm), layer `rt_fotogrammi.2024.rt` | Regione Toscana | Runtime | Optional graphical QA imagery | Creative Commons; verify the layer-specific terms before redistribution |
 
-## Local paths and provenance
+## Paths, download and provenance
 
 ### Comune di Firenze elevation data
+
+The DTM and DSM are not included in the repository. Download and extract the
+official archives from the repository root:
+
+```bash
+mkdir -p docs/assets/dtm/DTM_2023 docs/assets/dsm/DSM_2023
+curl -L https://datigis.comune.fi.it/grid/MDT_LIDAR_2023_ASCII.zip \
+  -o docs/assets/dtm/DTM_2023/MDT_LIDAR_2023_ASCII.zip
+curl -L https://datigis.comune.fi.it/grid/MDS_LIDAR_2023_ASCII.zip \
+  -o docs/assets/dsm/DSM_2023/MDS_LIDAR_2023_ASCII.zip
+unzip docs/assets/dtm/DTM_2023/MDT_LIDAR_2023_ASCII.zip \
+  -d docs/assets/dtm/DTM_2023
+unzip docs/assets/dsm/DSM_2023/MDS_LIDAR_2023_ASCII.zip \
+  -d docs/assets/dsm/DSM_2023
+```
+
+The configured directories are:
 
 - DTM: `docs/assets/dtm/DTM_2023`
 - DSM: `docs/assets/dsm/DSM_2023`
 - CRS used by the Florence configuration: `EPSG:25832`
 - Original LiDAR survey date: 2023-06-27
-- Bundled metadata and license files:
+- Metadata and license files retained in the repository:
   - `docs/assets/dtm/DTM_2023/METADATO_E_LICENZA/`
   - `docs/assets/dsm/DSM_2023/METADATO_E_LICENZA/`
 
