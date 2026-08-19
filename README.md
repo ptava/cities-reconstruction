@@ -21,6 +21,22 @@ The project is organized as a set of small modules that match the intended compu
 
 External systems such as Overpass, City4CFD, and OpenFOAM are kept behind stage modules. This keeps the CLI and configuration layer testable while domain-specific adapters are added incrementally.
 
+### Current Stage Status
+
+The application currently executes one selected stage at a time with `run-stage`; it does not yet provide an automatic end-to-end runner. The stage registry distinguishes a hard dependency from a default artifact producer, so a user-provided input can replace a normal upstream handoff where documented.
+
+| Stage | Status | Required inputs and normal producer | Supported input override | Output directory |
+| --- | --- | --- | --- | --- |
+| `shapefiles` | `implemented` | Region and classification configuration; Overpass and configured local inputs | `--overpass-json` plus documented supplemental-file overrides | `01_shapefiles` |
+| `visual-enrichment` | `review_only` | Stage 1 `all_features.geojson`; external candidates are optional | `--segmentation-geojson`, `--sat2lod2-geojson` | `02_visual_enrichment` |
+| `point-cloud` | `implemented` | Paired DTM/DSM grids and building-footprint GeoJSON; Stage 1 is only the default footprint producer | `--building-footprints-geojson`, `--tree-canopy-overlay` | `02_point_cloud` |
+| `city-models` | `implemented` | Stage 1 semantic surfaces and the completed point-cloud manifest | Documented `--city-models-*` parameters | `03_city_models` |
+| `trees` | `incomplete` | Stage 1 tree features and the configured tree model library | `--tree-terrain-geometry` for optional terrain placement | `04_trees` |
+| `air-purifiers` | `implemented` | Stage 1 purifier features and a purifier model catalog | `--model-library`, `--terrain-geometry` | `05_air_purifiers` |
+| `openfoam` | `planned` | Planned handoff from city, tree, and purifier geometry | None; execution is not implemented | `05_openfoam_case` (planned) |
+
+Point-cloud generation does **not** unconditionally depend on running `shapefiles`. It requires building footprints, but `--building-footprints-geojson` can provide them directly. When canopy filtering is enabled, `01_shapefiles/trees.geojson` supplies optional nearby tree-tag evidence; its absence is valid and produces no tree-tag points.
+
 ## Deferred Development Routes
 
 ### Segmentation-Assisted Visual Enrichment
@@ -84,6 +100,17 @@ uv run pytest
 ```
 
 New tests should use `pytest` fixtures and assertions. `uv run pytest` is the project-standard test command.
+
+Run the incremental Python quality checks:
+
+```bash
+uv run ruff check
+uv run mypy
+uv run pytest -q --cov=cities_reconstruction --cov-report=term-missing
+uv run python tools/audit_supplemental_planning_migration.py
+```
+
+Ruff and mypy initially cover the pipeline, CLI, artifact, stage-result, and City4CFD adapter boundaries plus their focused tests. This scope is intentionally expanded as the larger stage modules are decomposed; coverage measures the complete `cities_reconstruction` package and enforces the configured baseline.
 
 Audit active source, tests, configuration, public documentation, and maintained output snapshots for removed supplemental/planning contracts:
 
@@ -569,5 +596,4 @@ We could:
 ! We do not have a solution to get the most important parameter for CFD modelling: LAD of trees. I believe it could only be done considering terrestrial laser scanning surveys.
 
 ---
-
 

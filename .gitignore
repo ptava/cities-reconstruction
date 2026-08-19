@@ -13,6 +13,8 @@ tools/
 
 # testing
 outputs/
+.coverage
+.coverage.*
 
 # codex
 .agents/

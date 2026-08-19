@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import tempfile
-from typing import Protocol
+from dataclasses import dataclass
+from pathlib import Path
+from typing import BinaryIO, Protocol
 
 from cities_reconstruction.config import ConfigError, validate_city4cfd_docker_image
-
 
 DEFAULT_CITY4CFD_DOCKER_IMAGE = "tudelft3d/city4cfd:0.8.0"
 MAX_CAPTURE_BYTES = 1_048_576
@@ -53,7 +52,7 @@ class SubprocessCity4CFDExecutor:
     def execute(self, request: City4CFDExecutionRequest) -> City4CFDExecutionResult:
         executable = shutil.which("city4cfd")
         if executable is not None:
-            argv = (
+            argv: tuple[str, ...] = (
                 executable,
                 str(request.config_path),
                 "--output_dir",
@@ -87,6 +86,7 @@ class SubprocessCity4CFDExecutor:
             or os.environ.get("CITY4CFD_DOCKER_IMAGE")
             or DEFAULT_CITY4CFD_DOCKER_IMAGE
         )
+        assert image is not None
         argv = (
             docker,
             "run",
@@ -143,7 +143,7 @@ class SubprocessCity4CFDExecutor:
         )
 
 
-def _read_bounded(handle) -> tuple[str, bool]:
+def _read_bounded(handle: BinaryIO) -> tuple[str, bool]:
     handle.seek(0)
     data = handle.read(MAX_CAPTURE_BYTES + 1)
     truncated = len(data) > MAX_CAPTURE_BYTES
@@ -167,6 +167,7 @@ def render_handoff_script(request: City4CFDExecutionRequest) -> str:
         or os.environ.get("CITY4CFD_DOCKER_IMAGE")
         or DEFAULT_CITY4CFD_DOCKER_IMAGE
     )
+    assert image is not None
     docker_workdir = f"/work/{working_directory.name}"
     q = shlex.quote
     native = " ".join(

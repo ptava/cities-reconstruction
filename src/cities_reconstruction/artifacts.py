@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator, TextIO
+from typing import Any, TextIO
 from uuid import uuid4
 
 from cities_reconstruction import __version__
 from cities_reconstruction.config import ConfigError
-
 
 MANIFEST_SCHEMA_VERSION = 1
 FINGERPRINT_KIND = "sha256-canonical-path-size-mtime-ns"
@@ -101,6 +101,6 @@ def manifest_provenance(fingerprint: dict[str, Any]) -> dict[str, Any]:
     return {
         "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
         "application_version": __version__,
-        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "completed_at_utc": datetime.now(UTC).isoformat(),
         "input_state_fingerprint": fingerprint,
     }
