@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import struct
-from types import SimpleNamespace
 import zlib
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from cities_reconstruction.cli import main
+from cities_reconstruction.config import ConfigError
 from cities_reconstruction.stages import air_purifiers, point_cloud
 from tests.config_helpers import write_complete_config
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -47,6 +47,28 @@ def test_missing_config_returns_configuration_error(capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 2
     assert "Configuration error" in captured.err
+
+
+def test_run_stage_translates_stage_config_error(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+
+    def fail_stage(*_args, **_kwargs):
+        raise ConfigError("point-cloud fixture failure")
+
+    monkeypatch.setattr(point_cloud, "run", fail_stage)
+
+    exit_code = main(
+        ["run-stage", "--config", str(config_path), "point-cloud"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.err == "Configuration error: point-cloud fixture failure\n"
 
 
 def test_incomplete_config_returns_configuration_error(tmp_path: Path, capsys) -> None:

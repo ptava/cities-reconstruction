@@ -3,15 +3,37 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import json
 import sys
+from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
-from typing import Sequence
+from typing import Protocol
 
-from .config import ConfigError, SupplementalShapefileConfig, load_config, validate_config
-from .pipeline import STAGE_NAMES, dry_run
+from .config import (
+    AppConfig,
+    ConfigError,
+    SupplementalShapefileConfig,
+    load_config,
+    validate_config,
+)
+from .pipeline import EXECUTABLE_STAGE_NAMES, STAGE_NAMES, dry_run
+from .stage_result import StageResult
 from .stages import air_purifiers, city_models, point_cloud, shapefiles, trees, visual_enrichment
+
+
+class StageExecutionOutput(Protocol):
+    """Common CLI-facing behavior of executable stage results."""
+
+    @property
+    def report_path(self) -> Path:
+        """Path to the human-readable stage report."""
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable stage summary."""
+
+
+RunStageHandler = Callable[[AppConfig, argparse.Namespace], StageExecutionOutput]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_config_argument(run_stage)
     run_stage.add_argument(
         "stage",
-        choices=["shapefiles", "visual-enrichment", "point-cloud", "city-models", "trees", "air-purifiers"],
+        choices=EXECUTABLE_STAGE_NAMES,
         help="Stage to execute.",
     )
     run_stage.add_argument(
@@ -180,90 +202,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.building_footprints_geojson is not None and args.stage != "point-cloud":
             print("--building-footprints-geojson is valid only for the point-cloud stage", file=sys.stderr)
             return 2
-        if args.stage == "shapefiles":
-            config = _apply_shapefile_input_overrides(config, args)
-            result = shapefiles.run(config, overpass_json_path=args.overpass_json)
-            payload = result.to_dict()
-            if args.json:
-                print(json.dumps(payload, indent=2))
-            else:
-                print(result.report_path.read_text(encoding="utf-8").rstrip())
-            return 0
-        if args.stage == "visual-enrichment":
-            result = visual_enrichment.run(
-                config,
-                segmentation_geojson_path=args.segmentation_geojson,
-                sat2lod2_geojson_path=args.sat2lod2_geojson,
-            )
-            payload = result.to_dict()
-            if args.json:
-                print(json.dumps(payload, indent=2))
-            else:
-                print(result.report_path.read_text(encoding="utf-8").rstrip())
-            return 0
-        if args.stage == "point-cloud":
-            if args.tree_canopy_overlay is not None:
-                config = replace(
-                    config,
-                    inputs=replace(config.inputs, tree_canopy_overlay_path=args.tree_canopy_overlay),
-                )
-            building_footprints_path = args.building_footprints_geojson
-            if building_footprints_path is not None and not building_footprints_path.is_absolute():
-                building_footprints_path = (config.path.parent / building_footprints_path).resolve()
-            result = point_cloud.run(config, building_footprints_path=building_footprints_path)
-            payload = result.to_dict()
-            if args.json:
-                print(json.dumps(payload, indent=2))
-            else:
-                print(result.report_path.read_text(encoding="utf-8").rstrip())
-            return 0
-        if args.stage == "city-models":
-            try:
-                config = _apply_city_models_overrides(config, args)
-            except ConfigError as exc:
-                print(f"Configuration error: {exc}", file=sys.stderr)
-                return 2
-            result = city_models.run(config)
-            payload = result.to_dict()
-            if args.json:
-                print(json.dumps(payload, indent=2))
-            else:
-                print(result.report_path.read_text(encoding="utf-8").rstrip())
-            return 1 if getattr(result, "stage_status", "completed") == "failed_external_execution" else 0
-        if args.stage == "trees":
-            if args.tree_terrain_geometry is not None:
-                terrain_geometry_path = args.tree_terrain_geometry
-                if not terrain_geometry_path.is_absolute():
-                    terrain_geometry_path = (config.path.parent / terrain_geometry_path).resolve()
-                config = replace(
-                    config,
-                    inputs=replace(config.inputs, tree_terrain_geometry_path=terrain_geometry_path),
-                )
-            result = trees.run(config)
-            payload = result.to_dict()
-            if args.json:
-                print(json.dumps(payload, indent=2))
-            else:
-                print(result.report_path.read_text(encoding="utf-8").rstrip())
-            return 0
-        if args.stage == "air-purifiers":
-            model_library_path = _resolve_config_relative_path(config, args.model_library)
-            terrain_geometry_path = _resolve_config_relative_path(config, args.terrain_geometry)
-            try:
-                result = air_purifiers.run(
-                    config,
-                    model_library_path=model_library_path,
-                    terrain_geometry_path=terrain_geometry_path,
-                )
-            except ConfigError as exc:
-                print(f"Configuration error: {exc}", file=sys.stderr)
-                return 2
-            payload = result.to_dict()
-            if args.json:
-                print(json.dumps(payload, indent=2))
-            else:
-                print(result.report_path.read_text(encoding="utf-8").rstrip())
-            return 0
+        try:
+            result = RUN_STAGE_HANDLERS[args.stage](config, args)
+        except ConfigError as exc:
+            print(f"Configuration error: {exc}", file=sys.stderr)
+            return 2
+        _emit_stage_result(result, as_json=args.json)
+        return _stage_exit_code(result)
     parser.error(f"Unhandled command: {args.command}")
     return 2
 
@@ -278,13 +223,141 @@ def _add_config_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _resolve_config_relative_path(config, path: Path | None) -> Path | None:
+def _run_shapefiles(
+    config: AppConfig,
+    args: argparse.Namespace,
+) -> StageExecutionOutput:
+    config = _apply_shapefile_input_overrides(config, args)
+    return shapefiles.run(config, overpass_json_path=args.overpass_json)
+
+
+def _run_visual_enrichment(
+    config: AppConfig,
+    args: argparse.Namespace,
+) -> StageExecutionOutput:
+    return visual_enrichment.run(
+        config,
+        segmentation_geojson_path=args.segmentation_geojson,
+        sat2lod2_geojson_path=args.sat2lod2_geojson,
+    )
+
+
+def _run_point_cloud(
+    config: AppConfig,
+    args: argparse.Namespace,
+) -> StageExecutionOutput:
+    if args.tree_canopy_overlay is not None:
+        config = replace(
+            config,
+            inputs=replace(
+                config.inputs,
+                tree_canopy_overlay_path=args.tree_canopy_overlay,
+            ),
+        )
+    building_footprints_path = args.building_footprints_geojson
+    if (
+        building_footprints_path is not None
+        and not building_footprints_path.is_absolute()
+    ):
+        building_footprints_path = (
+            config.path.parent / building_footprints_path
+        ).resolve()
+    return point_cloud.run(
+        config,
+        building_footprints_path=building_footprints_path,
+    )
+
+
+def _run_city_models(
+    config: AppConfig,
+    args: argparse.Namespace,
+) -> StageExecutionOutput:
+    return city_models.run(_apply_city_models_overrides(config, args))
+
+
+def _run_trees(
+    config: AppConfig,
+    args: argparse.Namespace,
+) -> StageExecutionOutput:
+    if args.tree_terrain_geometry is not None:
+        terrain_geometry_path = args.tree_terrain_geometry
+        if not terrain_geometry_path.is_absolute():
+            terrain_geometry_path = (
+                config.path.parent / terrain_geometry_path
+            ).resolve()
+        config = replace(
+            config,
+            inputs=replace(
+                config.inputs,
+                tree_terrain_geometry_path=terrain_geometry_path,
+            ),
+        )
+    return trees.run(config)
+
+
+def _run_air_purifiers(
+    config: AppConfig,
+    args: argparse.Namespace,
+) -> StageExecutionOutput:
+    return air_purifiers.run(
+        config,
+        model_library_path=_resolve_config_relative_path(config, args.model_library),
+        terrain_geometry_path=_resolve_config_relative_path(
+            config,
+            args.terrain_geometry,
+        ),
+    )
+
+
+RUN_STAGE_HANDLERS: dict[str, RunStageHandler] = dict(
+    zip(
+        EXECUTABLE_STAGE_NAMES,
+        (
+            _run_shapefiles,
+            _run_visual_enrichment,
+            _run_point_cloud,
+            _run_city_models,
+            _run_trees,
+            _run_air_purifiers,
+        ),
+        strict=True,
+    )
+)
+
+
+def _emit_stage_result(
+    result: StageExecutionOutput,
+    *,
+    as_json: bool,
+) -> None:
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(result.report_path.read_text(encoding="utf-8").rstrip())
+
+
+def _stage_exit_code(result: StageExecutionOutput) -> int:
+    return (
+        1
+        if getattr(result, "stage_status", "completed")
+        == "failed_external_execution"
+        else 0
+    )
+
+
+def _resolve_config_relative_path(
+    config: AppConfig,
+    path: Path | None,
+) -> Path | None:
     if path is None or path.is_absolute():
         return path
     return (config.path.parent / path).resolve()
 
 
-def _apply_shapefile_input_overrides(config, args):
+def _apply_shapefile_input_overrides(
+    config: AppConfig,
+    args: argparse.Namespace,
+) -> AppConfig:
     shapefiles_config = config.shapefiles
     specifications = (
         ("streets", "roads", "street_area"),
@@ -446,7 +519,10 @@ def _add_city_models_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _apply_city_models_overrides(config, args):
+def _apply_city_models_overrides(
+    config: AppConfig,
+    args: argparse.Namespace,
+) -> AppConfig:
     city_models_config = config.city_models
     smooth_terrain = city_models_config.smooth_terrain
     reconstruction_region = city_models_config.reconstruction_region
@@ -517,7 +593,10 @@ def _apply_city_models_overrides(config, args):
     return validate_config(replace(config, city_models=city_models_config))
 
 
-def _print_dry_run(config, results) -> None:
+def _print_dry_run(
+    config: AppConfig,
+    results: Sequence[StageResult],
+) -> None:
     print(f"Dry run for {config.region.name}")
     print(f"CRS: {config.region.crs}")
     inner_description = (
