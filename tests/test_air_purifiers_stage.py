@@ -243,18 +243,18 @@ crs = "EPSG:4326"
 
     assert [
         feature["properties"]["purifier_id"] for feature in normalized["features"]
-    ] == [f"AP-{index:03d}" for index in range(1, 7)]
+    ] == [f"AP-{index:03d}" for index in range(1, 8)]
     assert all("planning_status" not in feature["properties"] for feature in normalized["features"])
     assert {
         feature["properties"]["urban_planning_input_id"]
         for feature in normalized["features"]
     } == {"mercato_centrale"}
-    assert result.purifier_count == 6
+    assert result.purifier_count == 7
     assert result.model_counts == {
-        "compact_four_side_tower": 3,
-        "compact_octagonal_tower": 3,
+        "compact_four_side_tower": 1,
+        "compact_octagonal_tower": 6,
     }
-    assert set(result.instance_stl_paths) == {f"AP-{index:03d}" for index in range(1, 7)}
+    assert set(result.instance_stl_paths) == {f"AP-{index:03d}" for index in range(1, 8)}
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["resolved_overrides"]["terrain_geometry_path"] is None
     assert manifest["terrain"] == {

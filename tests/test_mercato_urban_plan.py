@@ -15,12 +15,13 @@ PLAN_PATH = (
 )
 
 EXPECTED_PURIFIERS = [
-    ("AP-001", "compact_octagonal_tower", 4.0, 1.5, 1.5, 0.0),
-    ("AP-002", "compact_four_side_tower", 4.0, 1.5, 1.5, 0.0),
-    ("AP-003", "compact_octagonal_tower", 3.6, 1.35, 1.35, 0.0),
-    ("AP-004", "compact_four_side_tower", 3.8, 1.4, 1.3, 0.0),
-    ("AP-005", "compact_octagonal_tower", 4.4, 1.6, 1.6, 0.0),
-    ("AP-006", "compact_four_side_tower", 4.2, 1.55, 1.45, 0.0),
+    ("AP-001", "compact_octagonal_tower", 7, 3, 3, 0.0),
+    ("AP-002", "compact_octagonal_tower", 8, 4, 4, 0.0),
+    ("AP-003", "compact_octagonal_tower", 8, 4, 4, 0.0),
+    ("AP-004", "compact_four_side_tower", 6, 4, 4, 0.0),
+    ("AP-005", "compact_octagonal_tower", 6, 3, 3, 0.0),
+    ("AP-006", "compact_octagonal_tower", 6, 3, 3, 0.0),
+    ("AP-007", "compact_octagonal_tower", 6, 3, 3, 0.0),
 ]
 
 
@@ -32,11 +33,11 @@ def test_mercato_urban_plan_is_mixed_portable_geojson() -> None:
     assert "crs" not in plan
     assert Counter(feature["properties"]["kind"] for feature in features) == {
         "tree": 35,
-        "air_purifier": 6,
+        "air_purifier": 7,
     }
     ids = [feature["properties"]["id"] for feature in features]
     assert ids == sorted(ids)
-    assert len(set(ids)) == 41
+    assert len(set(ids)) == 42
     assert all(feature["geometry"]["type"] == "Point" for feature in features)
     assert all(len(feature["geometry"]["coordinates"]) == 2 for feature in features)
     assert all(
@@ -48,7 +49,10 @@ def test_mercato_urban_plan_is_mixed_portable_geojson() -> None:
     trees = [feature["properties"] for feature in features if feature["properties"]["kind"] == "tree"]
     assert [tree["id"] for tree in trees] == [f"MC-{index:03d}" for index in range(1, 36)]
     assert {tree["model"] for tree in trees} == {"large_round_broadleaf"}
-    assert {tree["trunk_diameter_m"] for tree in trees} == {0.12}
+    assert Counter(tree["trunk_diameter_m"] for tree in trees) == {
+        0.12: 2,
+        0.45: 33,
+    }
 
     purifiers = [
         (
@@ -96,15 +100,15 @@ path = "{PLAN_PATH.as_posix()}"
     summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
     assert summary["urban_planning"]["accepted_by_kind"] == {
         "tree": 35,
-        "air_purifier": 6,
+        "air_purifier": 7,
     }
     assert summary["urban_planning"]["outside_by_kind"] == {
         "tree": 0,
         "air_purifier": 0,
     }
     planning = json.loads(result.urban_planning_path.read_text(encoding="utf-8"))
-    assert len(planning["features"]) == 41
+    assert len(planning["features"]) == 42
     trees = json.loads(result.category_paths["trees"].read_text(encoding="utf-8"))
     purifiers = json.loads(result.air_purifiers_path.read_text(encoding="utf-8"))
     assert len(trees["features"]) == 35
-    assert len(purifiers["features"]) == 6
+    assert len(purifiers["features"]) == 7

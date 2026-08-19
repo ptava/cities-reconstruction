@@ -6,39 +6,17 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          11.25374636754776,
-          43.776824698980256
+          11.252528568199057,
+          43.77680119146037
         ]
       },
       "properties": {
         "id": "AP-001",
         "kind": "air_purifier",
         "model": "compact_octagonal_tower",
-        "height_m": 4.0,
-        "width_m": 1.5,
-        "depth_m": 1.5,
-        "rotation_deg": 0.0,
-        "street": "Piazza del Mercato Centrale",
-        "tree_a": "MC-031",
-        "tree_b": "MC-028"
-      }
-    },
-    {
-      "type": "Feature",
-      "geometry": {
-        "type": "Point",
-        "coordinates": [
-          11.253676587225545,
-          43.77687575817813
-        ]
-      },
-      "properties": {
-        "id": "AP-002",
-        "kind": "air_purifier",
-        "model": "compact_four_side_tower",
-        "height_m": 4.0,
-        "width_m": 1.5,
-        "depth_m": 1.5,
+        "height_m": 7,
+        "width_m": 3,
+        "depth_m": 3,
         "rotation_deg": 0.0,
         "street": "Piazza del Mercato Centrale",
         "tree_a": "MC-032",
@@ -50,17 +28,39 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          11.253955707801511,
-          43.77667152114359
+          11.253228741295313,
+          43.77606264772303
+        ]
+      },
+      "properties": {
+        "id": "AP-002",
+        "kind": "air_purifier",
+        "model": "compact_octagonal_tower",
+        "height_m": 8,
+        "width_m": 4,
+        "depth_m": 4,
+        "rotation_deg": 0.0,
+        "street": "Piazza del Mercato Centrale",
+        "tree_a": "MC-032",
+        "tree_b": "MC-030"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.254198697868858,
+          43.776358738713185
         ]
       },
       "properties": {
         "id": "AP-003",
         "kind": "air_purifier",
         "model": "compact_octagonal_tower",
-        "height_m": 3.6,
-        "width_m": 1.35,
-        "depth_m": 1.35,
+        "height_m": 8,
+        "width_m": 4,
+        "depth_m": 4,
         "rotation_deg": 0.0,
         "street": "Piazza del Mercato Centrale",
         "tree_a": "MC-027",
@@ -72,17 +72,17 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          11.253964868909533,
-          43.77662366646023
+          11.254235102960186,
+          43.77650100143033
         ]
       },
       "properties": {
         "id": "AP-004",
         "kind": "air_purifier",
         "model": "compact_four_side_tower",
-        "height_m": 3.8,
-        "width_m": 1.4,
-        "depth_m": 1.3,
+        "height_m": 6,
+        "width_m": 4,
+        "depth_m": 4,
         "rotation_deg": 0.0,
         "street": "Piazza del Mercato Centrale",
         "tree_a": "MC-017",
@@ -94,17 +94,17 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          11.253532128717112,
-          43.77694954902234
+          11.253871305761827,
+          43.77639143346394
         ]
       },
       "properties": {
         "id": "AP-005",
         "kind": "air_purifier",
         "model": "compact_octagonal_tower",
-        "height_m": 4.4,
-        "width_m": 1.6,
-        "depth_m": 1.6,
+        "height_m": 6,
+        "width_m": 3,
+        "depth_m": 3,
         "rotation_deg": 0.0,
         "street": "Piazza del Mercato Centrale",
         "tree_a": "MC-033",
@@ -116,21 +116,37 @@
       "geometry": {
         "type": "Point",
         "coordinates": [
-          11.253951183268152,
-          43.776577063016816
+          11.253291905372118,
+          43.77715838143868
         ]
       },
       "properties": {
         "id": "AP-006",
         "kind": "air_purifier",
-        "model": "compact_four_side_tower",
-        "height_m": 4.2,
-        "width_m": 1.55,
-        "depth_m": 1.45,
-        "rotation_deg": 0.0,
-        "street": "Piazza del Mercato Centrale",
-        "tree_a": "MC-019",
-        "tree_b": "MC-015"
+        "model": "compact_octagonal_tower",
+        "height_m": 6,
+        "width_m": 3,
+        "depth_m": 3,
+        "rotation_deg": 0.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          11.253593680720495,
+          43.77623982464083
+        ]
+      },
+      "properties": {
+        "id": "AP-007",
+        "kind": "air_purifier",
+        "model": "compact_octagonal_tower",
+        "height_m": 6,
+        "width_m": 3,
+        "depth_m": 3,
+        "rotation_deg": 0.0
       }
     },
     {
@@ -146,7 +162,7 @@
         "id": "MC-001",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via dell'Ariento",
         "road_id": "corridor",
         "scenario": "urban_planning",
@@ -166,7 +182,7 @@
         "id": "MC-002",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via dell'Ariento",
         "road_id": "corridor",
         "scenario": "urban_planning",
@@ -186,7 +202,7 @@
         "id": "MC-003",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via dell'Ariento",
         "road_id": "corridor",
         "scenario": "urban_planning",
@@ -206,7 +222,7 @@
         "id": "MC-004",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via dell'Ariento",
         "road_id": "corridor",
         "scenario": "urban_planning",
@@ -226,7 +242,7 @@
         "id": "MC-005",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via dell'Ariento",
         "road_id": "corridor",
         "scenario": "urban_planning",
@@ -246,7 +262,7 @@
         "id": "MC-006",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via dell'Ariento",
         "road_id": "corridor",
         "scenario": "urban_planning",
@@ -266,7 +282,7 @@
         "id": "MC-007",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via dell'Ariento",
         "road_id": "corridor",
         "scenario": "urban_planning",
@@ -286,7 +302,7 @@
         "id": "MC-008",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via dell'Ariento",
         "road_id": "corridor",
         "scenario": "urban_planning",
@@ -306,7 +322,7 @@
         "id": "MC-009",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via dell'Ariento",
         "road_id": "corridor",
         "scenario": "urban_planning",
@@ -346,7 +362,7 @@
         "id": "MC-011",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via Panicale",
         "road_id": "paved_row",
         "scenario": "urban_planning",
@@ -366,7 +382,7 @@
         "id": "MC-012",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via Panicale",
         "road_id": "paved_row",
         "scenario": "urban_planning",
@@ -386,7 +402,7 @@
         "id": "MC-013",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via Panicale",
         "road_id": "paved_row",
         "scenario": "urban_planning",
@@ -406,7 +422,7 @@
         "id": "MC-014",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via Panicale",
         "road_id": "paved_row",
         "scenario": "urban_planning",
@@ -426,7 +442,7 @@
         "id": "MC-015",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -446,7 +462,7 @@
         "id": "MC-016",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -466,7 +482,7 @@
         "id": "MC-017",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -486,7 +502,7 @@
         "id": "MC-018",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -506,7 +522,7 @@
         "id": "MC-019",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -526,7 +542,7 @@
         "id": "MC-020",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -546,7 +562,7 @@
         "id": "MC-021",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -566,7 +582,7 @@
         "id": "MC-022",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -586,7 +602,7 @@
         "id": "MC-023",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -606,7 +622,7 @@
         "id": "MC-024",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -626,7 +642,7 @@
         "id": "MC-025",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via Sant'Orsola",
         "road_id": 20016,
         "scenario": "urban_planning",
@@ -646,7 +662,7 @@
         "id": "MC-026",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -666,7 +682,7 @@
         "id": "MC-027",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -686,7 +702,7 @@
         "id": "MC-028",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -706,7 +722,7 @@
         "id": "MC-029",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -726,7 +742,7 @@
         "id": "MC-030",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -766,7 +782,7 @@
         "id": "MC-032",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -786,7 +802,7 @@
         "id": "MC-033",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Piazza del Mercato Centrale",
         "road_id": 13981,
         "scenario": "urban_planning",
@@ -806,7 +822,7 @@
         "id": "MC-034",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via Nazionale",
         "road_id": 18404,
         "scenario": "urban_planning",
@@ -826,7 +842,7 @@
         "id": "MC-035",
         "kind": "tree",
         "model": "large_round_broadleaf",
-        "trunk_diameter_m": 0.12,
+        "trunk_diameter_m": 0.45,
         "street": "Via Nazionale",
         "road_id": 18404,
         "scenario": "urban_planning",
