@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import struct
 import zlib
+from pathlib import Path
 
 import pytest
 
-from cities_reconstruction.config import load_config
-from cities_reconstruction.config import ConfigError
+from cities_reconstruction.config import ConfigError, load_config
+from cities_reconstruction.stage_contract import ArtifactKind
 from cities_reconstruction.stages import point_cloud
 from tests.config_helpers import write_complete_config
+from tests.stage_manifest_helpers import publish_test_stage_manifest
 
 
 def test_generates_separate_city4cfd_point_clouds_and_alignment_artifacts(tmp_path: Path, monkeypatch) -> None:
@@ -80,18 +81,50 @@ def test_generates_separate_city4cfd_point_clouds_and_alignment_artifacts(tmp_pa
     assert len(unclassified_vertices) == result.unclassified_point_count
     assert all(vertex not in building_vertices for vertex in unclassified_vertices)
 
+    legacy_manifest_path = result.output_directory / "city4cfd_point_cloud_manifest.json"
+    assert result.manifest_path == result.output_directory / "manifest.json"
+    assert not legacy_manifest_path.exists()
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["manifest_schema_version"] == 1
+    assert manifest["schema_version"] == 2
     assert manifest["application_version"] == "0.1.0"
-    assert manifest["completed_at_utc"].endswith("+00:00")
+    assert manifest["stage"] == "point-cloud"
+    assert manifest["status"] == "completed"
+    assert manifest["finished_at_utc"].endswith("+00:00")
     assert manifest["input_state_fingerprint"]["kind"] == "sha256-canonical-path-size-mtime-ns"
-    assert manifest["city4cfd_inputs"]["ground_point_cloud"] == str(result.ground_points_path)
-    assert manifest["city4cfd_inputs"]["building_point_cloud"] == str(result.building_points_path)
-    assert manifest["city4cfd_inputs"]["building_footprints"] == str(result.projected_footprints_path)
-    assert manifest["unclassified_point_cloud"] == str(result.unclassified_points_path)
-    assert "unclassified_point_cloud" not in manifest["city4cfd_inputs"]
-    assert manifest["point_counts"]["unclassified"] == result.unclassified_point_count
-    assert manifest["alignment_status"] == "passed"
+    artifacts = {artifact["name"]: artifact for artifact in manifest["artifacts"]}
+    assert artifacts["projected-building-footprints"] == {
+        "name": "projected-building-footprints",
+        "path": str(result.projected_footprints_path),
+        "kind": "handoff",
+        "required": True,
+    }
+    assert artifacts["ground-points"] == {
+        "name": "ground-points",
+        "path": str(result.ground_points_path),
+        "kind": "handoff",
+        "required": True,
+    }
+    assert artifacts["building-points"] == {
+        "name": "building-points",
+        "path": str(result.building_points_path),
+        "kind": "handoff",
+        "required": True,
+    }
+    assert "tree-points" not in artifacts
+    assert artifacts["unclassified-points"] == {
+        "name": "unclassified-points",
+        "path": str(result.unclassified_points_path),
+        "kind": "diagnostic",
+        "required": True,
+    }
+    assert manifest["metrics"] == {
+        "ground_point_count": result.ground_point_count,
+        "building_point_count": result.building_point_count,
+        "tree_point_count": result.tree_point_count,
+        "unclassified_point_count": result.unclassified_point_count,
+        "alignment_status": "passed",
+    }
+    assert result.to_dict() == manifest
 
     diagnostics = json.loads(result.diagnostics_path.read_text(encoding="utf-8"))
     assert diagnostics["footprint_path"] == str(stage1_footprints)
@@ -543,15 +576,91 @@ def test_building_footprint_selection_requires_explicit_override(tmp_path: Path)
     for path in (stage1_path, explicit_path, dormant_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    publish_test_stage_manifest(
+        stage1_path.parent,
+        stage="shapefiles",
+        named_artifacts={"category-buildings": (stage1_path, ArtifactKind.HANDOFF)},
+    )
 
     assert point_cloud._select_building_footprints_path(config) == stage1_path
     assert point_cloud._select_building_footprints_path(config, explicit_path) == explicit_path
 
     stage1_path.unlink()
-    with pytest.raises(ConfigError, match="missing default Stage 1 building footprints"):
+    with pytest.raises(ConfigError, match="manifest missing required artifact.*buildings.geojson"):
         point_cloud._select_building_footprints_path(config)
     with pytest.raises(ConfigError, match="explicit building-footprint GeoJSON does not exist"):
         point_cloud._select_building_footprints_path(config, tmp_path / "missing.geojson")
+
+
+def test_default_building_footprints_require_shapefiles_manifest_but_explicit_override_does_not(
+    tmp_path: Path,
+) -> None:
+    config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
+    config = load_config(config_path)
+    stage1_path = tmp_path / "outputs" / "01_shapefiles" / "buildings.geojson"
+    stage1_path.parent.mkdir(parents=True)
+    stage1_path.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    explicit_path = tmp_path / "explicit.geojson"
+    explicit_path.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+
+    with pytest.raises(ConfigError, match=str(stage1_path.parent / "manifest.json")):
+        point_cloud._select_building_footprints_path(config)
+
+    assert point_cloud._select_building_footprints_path(config, explicit_path) == explicit_path
+
+
+def test_explicit_footprints_do_not_consume_stale_stage1_tree_tags_without_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    outputs = tmp_path / "outputs"
+    dtm_dir = tmp_path / "dtm"
+    dsm_dir = tmp_path / "dsm"
+    overlay_path = tmp_path / "tree_overlay.png"
+    explicit_footprints = tmp_path / "inputs" / "explicit_buildings.geojson"
+    dtm_dir.mkdir()
+    dsm_dir.mkdir()
+    center_lon = 11.2558
+    center_lat = 43.7696
+    center_x, center_y = point_cloud._lonlat_to_epsg25832(center_lon, center_lat)
+    _write_grid(dtm_dir / "tile.ASC", center_x, center_y, elevated=False)
+    _write_roof_with_tree_peak_grid(dsm_dir / "tile.ASC", center_x, center_y)
+    _write_buildings(explicit_footprints, center_lon, center_lat)
+    stale_trees = outputs / "01_shapefiles" / "trees.geojson"
+    _write_trees(stale_trees, center_lon, center_lat, publish_manifest=False)
+    _write_png(overlay_path, width=5, height=5, rgba=(10, 160, 35, 255))
+    write_complete_config(
+        config_path,
+        output_root=outputs,
+        name="Explicit Footprint Without Stage 1 Manifest",
+        center_lat=center_lat,
+        center_lon=center_lon,
+        inner_diameter_m=12.0,
+        outer_diameter_m=16.0,
+        input_lines=(
+            f'dtm_directory = "{dtm_dir.as_posix()}"',
+            f'dsm_directory = "{dsm_dir.as_posix()}"',
+            f'tree_canopy_overlay_path = "{overlay_path.as_posix()}"',
+        ),
+    )
+    fingerprint_paths: list[Path] = []
+    real_fingerprint = point_cloud.lightweight_state_fingerprint
+
+    def capture_fingerprint(payload, paths):
+        fingerprint_paths.extend(paths)
+        return real_fingerprint(payload, paths)
+
+    monkeypatch.setattr(point_cloud, "lightweight_state_fingerprint", capture_fingerprint)
+
+    result = point_cloud.run(
+        load_config(config_path),
+        building_footprints_path=explicit_footprints,
+    )
+
+    diagnostics = json.loads(result.diagnostics_path.read_text(encoding="utf-8"))
+    assert diagnostics["tree_filter"]["tree_tag_point_count"] == 0
+    assert stale_trees not in fingerprint_paths
 
 
 def test_failed_point_cloud_qa_does_not_publish_manifest(
@@ -582,9 +691,12 @@ def test_failed_point_cloud_qa_does_not_publish_manifest(
             f'dsm_directory = "{dsm_dir.as_posix()}"',
         ),
     )
-    manifest_path = output_root / "02_point_cloud" / "city4cfd_point_cloud_manifest.json"
-    manifest_path.parent.mkdir(parents=True)
+    stage_dir = output_root / "02_point_cloud"
+    manifest_path = stage_dir / "manifest.json"
+    legacy_manifest_path = stage_dir / "city4cfd_point_cloud_manifest.json"
+    stage_dir.mkdir(parents=True)
     manifest_path.write_text('{"stale":true}', encoding="utf-8")
+    legacy_manifest_path.write_text('{"stale":true}', encoding="utf-8")
     monkeypatch.setattr(
         point_cloud,
         "_render_preview",
@@ -595,6 +707,7 @@ def test_failed_point_cloud_qa_does_not_publish_manifest(
         point_cloud.run(load_config(config_path))
 
     assert not manifest_path.exists()
+    assert not legacy_manifest_path.exists()
     assert not (manifest_path.parent / ".stage.lock").exists()
 
 
@@ -605,9 +718,12 @@ def test_early_point_cloud_validation_failure_invalidates_old_manifest(
     config_path = tmp_path / "config.toml"
     output_root = tmp_path / "outputs"
     write_complete_config(config_path, output_root=output_root)
-    manifest_path = output_root / "02_point_cloud" / "city4cfd_point_cloud_manifest.json"
-    manifest_path.parent.mkdir(parents=True)
+    stage_dir = output_root / "02_point_cloud"
+    manifest_path = stage_dir / "manifest.json"
+    legacy_manifest_path = stage_dir / "city4cfd_point_cloud_manifest.json"
+    stage_dir.mkdir(parents=True)
     manifest_path.write_text('{"stale":true}', encoding="utf-8")
+    legacy_manifest_path.write_text('{"stale":true}', encoding="utf-8")
 
     def fail_validation(_config) -> None:
         raise ConfigError("input validation failed")
@@ -618,6 +734,7 @@ def test_early_point_cloud_validation_failure_invalidates_old_manifest(
         point_cloud.run(load_config(config_path))
 
     assert not manifest_path.exists()
+    assert not legacy_manifest_path.exists()
 
 
 def test_explicit_footprint_override_reuses_feature_collection_validation(tmp_path: Path) -> None:
@@ -761,8 +878,14 @@ def test_roof_offset_tree_candidate_is_removed_from_building_cloud(tmp_path: Pat
     assert diagnostics["tree_point_count"] == result.tree_point_count
 
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["city4cfd_inputs"]["tree_point_cloud"] == str(result.tree_points_path)
-    assert manifest["point_counts"]["tree"] == result.tree_point_count
+    artifacts = {artifact["name"]: artifact for artifact in manifest["artifacts"]}
+    assert artifacts["tree-points"] == {
+        "name": "tree-points",
+        "path": str(result.tree_points_path),
+        "kind": "handoff",
+        "required": False,
+    }
+    assert manifest["metrics"]["tree_point_count"] == result.tree_point_count
 
     preview = result.preview_path.read_text(encoding="utf-8")
     assert "filtered tree DSM points" in preview
@@ -982,6 +1105,12 @@ def _write_buildings(path: Path, center_lon: float, center_lat: float) -> None:
         ),
         encoding="utf-8",
     )
+    if path.parent.name == "01_shapefiles":
+        publish_test_stage_manifest(
+            path.parent,
+            stage="shapefiles",
+            named_artifacts={"category-buildings": (path, ArtifactKind.HANDOFF)},
+        )
 
 
 def _write_east_building(path: Path, center_lon: float, center_lat: float) -> None:
@@ -1015,7 +1144,13 @@ def _write_east_building(path: Path, center_lon: float, center_lat: float) -> No
     )
 
 
-def _write_trees(path: Path, center_lon: float, center_lat: float) -> None:
+def _write_trees(
+    path: Path,
+    center_lon: float,
+    center_lat: float,
+    *,
+    publish_manifest: bool = True,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
@@ -1032,6 +1167,16 @@ def _write_trees(path: Path, center_lon: float, center_lat: float) -> None:
         ),
         encoding="utf-8",
     )
+    if publish_manifest and path.parent.name == "01_shapefiles":
+        named_artifacts = {"category-trees": (path, ArtifactKind.HANDOFF)}
+        buildings_path = path.parent / "buildings.geojson"
+        if buildings_path.is_file():
+            named_artifacts["category-buildings"] = (buildings_path, ArtifactKind.HANDOFF)
+        publish_test_stage_manifest(
+            path.parent,
+            stage="shapefiles",
+            named_artifacts=named_artifacts,
+        )
 
 
 def _write_png(path: Path, width: int, height: int, rgba: tuple[int, int, int, int]) -> None:

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-from cities_reconstruction.config import load_config
+import pytest
+
+from cities_reconstruction.config import ConfigError, load_config
+from cities_reconstruction.stage_contract import ArtifactKind, StageOutput, StageStatus
 from cities_reconstruction.stages import visual_enrichment
 from tests.config_helpers import write_complete_config
-
+from tests.stage_manifest_helpers import publish_test_stage_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,7 +29,102 @@ def test_visual_enrichment_is_deferred_segmentation_plan() -> None:
     assert "do not promote segmented geometry" in planned
 
 
-def test_visual_enrichment_writes_reviewable_segmentation_candidates(tmp_path: Path) -> None:
+def test_visual_enrichment_failure_invalidates_stale_completion_manifest(tmp_path: Path) -> None:
+    config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
+    manifest_path = tmp_path / "outputs" / "02_visual_enrichment" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text('{"stale": true}', encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="01_shapefiles/manifest.json"):
+        visual_enrichment.run(load_config(config_path))
+
+    assert not manifest_path.exists()
+
+
+def test_visual_enrichment_rejects_failed_shapefiles_handoff(tmp_path: Path) -> None:
+    config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
+    stage1_dir = tmp_path / "outputs" / "01_shapefiles"
+    stage1_dir.mkdir(parents=True)
+    source_path = stage1_dir / "all_features.geojson"
+    source_path.write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+    manifest = publish_test_stage_manifest(
+        stage1_dir,
+        stage="shapefiles",
+        status=StageStatus.FAILED_EXTERNAL_EXECUTION,
+        named_artifacts={"all-features": (source_path, ArtifactKind.HANDOFF)},
+    )
+
+    with pytest.raises(ConfigError, match="not completed") as error:
+        visual_enrichment.run(load_config(config_path))
+
+    assert str(manifest.manifest_path) in str(error.value)
+
+
+def test_visual_enrichment_does_not_claim_universal_stage_output_lock(tmp_path: Path) -> None:
+    config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
+    stage1_dir = tmp_path / "outputs" / "01_shapefiles"
+    stage1_dir.mkdir(parents=True)
+    (stage1_dir / "all_features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}),
+        encoding="utf-8",
+    )
+    publish_test_stage_manifest(
+        stage1_dir,
+        stage="shapefiles",
+        named_artifacts={
+            "all-features": (stage1_dir / "all_features.geojson", ArtifactKind.HANDOFF),
+        },
+    )
+    output_dir = tmp_path / "outputs" / "02_visual_enrichment"
+    output_dir.mkdir(parents=True)
+    lock_path = output_dir / ".stage.lock"
+    lock_path.write_text("owned by a future transactional runner\n", encoding="utf-8")
+
+    result = visual_enrichment.run(load_config(config_path))
+
+    assert result.manifest_path.is_file()
+    assert lock_path.read_text(encoding="utf-8") == "owned by a future transactional runner\n"
+
+
+def test_visual_enrichment_fingerprint_canonicalizes_external_candidate_paths(tmp_path: Path) -> None:
+    config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
+    stage1_dir = tmp_path / "outputs" / "01_shapefiles"
+    stage1_dir.mkdir(parents=True)
+    (stage1_dir / "all_features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}),
+        encoding="utf-8",
+    )
+    publish_test_stage_manifest(
+        stage1_dir,
+        stage="shapefiles",
+        named_artifacts={
+            "all-features": (stage1_dir / "all_features.geojson", ArtifactKind.HANDOFF),
+        },
+    )
+    segmentation_path = tmp_path / "segmentation.geojson"
+    segmentation_path.write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}),
+        encoding="utf-8",
+    )
+    relative_segmentation_path = Path(os.path.relpath(segmentation_path, Path.cwd()))
+
+    absolute_result = visual_enrichment.run(
+        load_config(config_path),
+        segmentation_geojson_path=segmentation_path.resolve(),
+    )
+    relative_result = visual_enrichment.run(
+        load_config(config_path),
+        segmentation_geojson_path=relative_segmentation_path,
+    )
+
+    assert relative_result.manifest.input_state_fingerprint == absolute_result.manifest.input_state_fingerprint
+    assert relative_result.details["segmentation_source"] == str(segmentation_path.resolve())
+
+
+def test_visual_enrichment_writes_reviewable_segmentation_candidates(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     config_path = tmp_path / "config.toml"
     output_root = tmp_path / "outputs"
     write_complete_config(config_path, output_root=output_root, name="Visual Fixture")
@@ -86,6 +185,17 @@ def test_visual_enrichment_writes_reviewable_segmentation_candidates(tmp_path: P
             }
         ),
         encoding="utf-8",
+    )
+    publish_test_stage_manifest(
+        stage1_dir,
+        stage="shapefiles",
+        named_artifacts={
+            "all-features": (stage1_dir / "all_features.geojson", ArtifactKind.HANDOFF),
+            "imagery-diagnostics": (
+                stage1_dir / "imagery_diagnostics.json",
+                ArtifactKind.DIAGNOSTIC,
+            ),
+        },
     )
     segmentation_path = tmp_path / "segmentation.geojson"
     segmentation_path.write_text(
@@ -162,6 +272,16 @@ def test_visual_enrichment_writes_reviewable_segmentation_candidates(tmp_path: P
         ),
         encoding="utf-8",
     )
+    published: list[Path] = []
+    original_publish = visual_enrichment.publish_stage_manifest
+
+    def observe_publication(**kwargs):
+        assert kwargs["report_path"].is_file()
+        assert kwargs["preview_path"].is_file()
+        published.append(kwargs["output_directory"] / "manifest.json")
+        return original_publish(**kwargs)
+
+    monkeypatch.setattr(visual_enrichment, "publish_stage_manifest", observe_publication)
 
     result = visual_enrichment.run(
         load_config(config_path),
@@ -169,6 +289,7 @@ def test_visual_enrichment_writes_reviewable_segmentation_candidates(tmp_path: P
         sat2lod2_geojson_path=sat2lod2_path,
     )
 
+    assert isinstance(result, StageOutput)
     assert result.candidate_count == 4
     assert result.sat2lod2_feature_count == 1
     assert result.candidate_building_footprints_path.exists()
@@ -218,6 +339,25 @@ def test_visual_enrichment_writes_reviewable_segmentation_candidates(tmp_path: P
     assert "Visual Enrichment Report" in report
     assert "Candidate roads / paved / concrete surfaces: 1" in report
     assert "SAT2LoD2 building polygons read: 1" in report
+
+    stage_manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert stage_manifest["schema_version"] == 2
+    assert stage_manifest["stage"] == "visual-enrichment"
+    assert stage_manifest["status"] == "completed"
+    assert stage_manifest["preview_path"] == str(result.segmentation_overlay_path)
+    artifacts = {artifact["name"]: artifact for artifact in stage_manifest["artifacts"]}
+    assert all(artifact["required"] is True for artifact in artifacts.values())
+    assert artifacts["candidate-building-footprints"]["kind"] == "supporting"
+    assert artifacts["segmentation-diagnostics"]["kind"] == "diagnostic"
+    assert artifacts["segmentation-overlay"]["kind"] == "preview"
+    assert stage_manifest["metrics"] == {
+        "source_feature_count": result.source_feature_count,
+        "segmentation_feature_count": result.segmentation_feature_count,
+        "sat2lod2_feature_count": result.sat2lod2_feature_count,
+        "candidate_count": result.candidate_count,
+    }
+    assert result.to_dict() == stage_manifest
+    assert published == [result.manifest_path]
 
 
 def _feature(name: str, category: str, coordinates: list[list[float]], osm_id: int | str) -> dict[str, object]:

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import struct
 import time
+from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 from urllib import error
@@ -11,9 +13,9 @@ import pytest
 from shapely.geometry import Point
 
 from cities_reconstruction.config import ConfigError, load_config
+from cities_reconstruction.stage_contract import StageOutput
 from cities_reconstruction.stages import shapefiles
 from tests.config_helpers import DEFAULT_SHAPEFILES_BLOCK, write_complete_config
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -340,15 +342,29 @@ def test_resolves_overpass_polygon_superposition_by_configured_precedence(tmp_pa
     assert diagnostics["removed_overlap_area_m2"] > 0.0
 
 
-def test_run_with_cached_overpass_json_writes_expected_artifacts(tmp_path: Path) -> None:
+def test_run_with_cached_overpass_json_writes_expected_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config_path = tmp_path / "config.toml"
     raw_path = tmp_path / "overpass.json"
     write_complete_config(config_path, output_root=tmp_path / "outputs", name="Fixture")
     raw_path.write_text(json.dumps(_sample_overpass_payload()), encoding="utf-8")
 
     config = load_config(config_path)
+    published: list[Path] = []
+    original_publish = shapefiles.publish_stage_manifest
+
+    def observe_publication(**kwargs):
+        assert kwargs["report_path"].is_file()
+        assert kwargs["preview_path"].is_file()
+        published.append(kwargs["output_directory"] / "manifest.json")
+        return original_publish(**kwargs)
+
+    monkeypatch.setattr(shapefiles, "publish_stage_manifest", observe_publication)
     result = shapefiles.run(config, overpass_json_path=raw_path)
 
+    assert isinstance(result, StageOutput)
     assert result.accepted_feature_count >= 6
     assert result.tag_inventory_path.exists()
     assert result.diagnostics_path.exists()
@@ -358,6 +374,26 @@ def test_run_with_cached_overpass_json_writes_expected_artifacts(tmp_path: Path)
     assert result.all_features_path.exists()
     assert result.region_paths["inner_region"].exists()
     assert result.region_paths["annular_region"].exists()
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == 2
+    assert manifest["stage"] == "shapefiles"
+    assert manifest["status"] == "completed"
+    artifacts = {artifact["name"]: artifact for artifact in manifest["artifacts"]}
+    assert all(artifact["required"] is True for artifact in artifacts.values())
+    assert artifacts["all-features"]["kind"] == "handoff"
+    assert artifacts["category-buildings"]["path"] == str(result.category_paths["buildings"])
+    assert artifacts["region-inner-region"]["path"] == str(result.region_paths["inner_region"])
+    assert artifacts["overpass-raw"]["kind"] == "diagnostic"
+    assert artifacts["imagery-overlay"]["kind"] == "diagnostic"
+    assert manifest["metrics"] == {
+        "raw_element_count": result.raw_element_count,
+        "accepted_feature_count": result.accepted_feature_count,
+        "skipped_feature_count": result.skipped_feature_count,
+    }
+    assert result.to_dict() == manifest
+    assert published == [result.manifest_path]
+
+
     assert result.summary_path.exists()
     assert result.report_path.exists()
     assert result.preview_path.exists()
@@ -403,6 +439,41 @@ def test_run_with_cached_overpass_json_writes_expected_artifacts(tmp_path: Path)
     tag_inventory = json.loads(result.tag_inventory_path.read_text(encoding="utf-8"))
     assert tag_inventory["tag_value_counts"]["building=yes"] == 2
     assert tag_inventory["unclassified_tag_value_counts"]["shop=books"] == 1
+
+
+def test_shapefiles_failure_invalidates_stale_completion_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
+    manifest_path = tmp_path / "outputs" / "01_shapefiles" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text('{"stale": true}', encoding="utf-8")
+    monkeypatch.setattr(
+        shapefiles,
+        "build_tag_inventory_query",
+        lambda _config: (_ for _ in ()).throw(ConfigError("forced query failure")),
+    )
+
+    with pytest.raises(ConfigError, match="forced query failure"):
+        shapefiles.run(load_config(config_path))
+
+    assert not manifest_path.exists()
+
+
+def test_shapefiles_does_not_claim_universal_stage_output_lock(tmp_path: Path) -> None:
+    config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
+    cached = tmp_path / "overpass.json"
+    cached.write_text(json.dumps(_sample_overpass_payload()), encoding="utf-8")
+    output_dir = tmp_path / "outputs" / "01_shapefiles"
+    output_dir.mkdir(parents=True)
+    lock_path = output_dir / ".stage.lock"
+    lock_path.write_text("owned by a future transactional runner\n", encoding="utf-8")
+
+    result = shapefiles.run(load_config(config_path), overpass_json_path=cached)
+
+    assert result.manifest_path.is_file()
+    assert lock_path.read_text(encoding="utf-8") == "owned by a future transactional runner\n"
 
 
 def test_run_routes_urban_planning_points_to_tree_and_purifier_artifacts(tmp_path: Path) -> None:
@@ -624,7 +695,9 @@ def test_run_always_writes_empty_air_purifier_artifact(tmp_path: Path) -> None:
         "type": "FeatureCollection",
         "features": [],
     }
-    assert result.to_dict()["air_purifiers_path"] == str(result.air_purifiers_path)
+    manifest = result.to_dict()
+    air_purifiers = next(artifact for artifact in manifest["artifacts"] if artifact["name"] == "air-purifiers")
+    assert air_purifiers["path"] == str(result.air_purifiers_path)
 
     diagnostics = json.loads(result.diagnostics_path.read_text(encoding="utf-8"))
     assert diagnostics["contributing_feature_count"] == 4
@@ -777,6 +850,184 @@ def test_cached_stage_geometry_rerun_preserves_existing_tag_inventory(tmp_path: 
     inventory = json.loads(result.tag_inventory_path.read_text(encoding="utf-8"))
     assert inventory["source"] == f"existing tag-inventory cache: {inventory_cache}"
     assert inventory["tag_value_counts"] == {"shop=books": 1}
+    assert result.manifest.input_state_fingerprint["path_count"] == 1
+    assert result.manifest.details["source"].endswith(str(geometry_cache.resolve()))
+
+    rerun = shapefiles.run(load_config(config_path), overpass_json_path=inventory_cache)
+
+    assert rerun.manifest.input_state_fingerprint == result.manifest.input_state_fingerprint
+    assert rerun.manifest.details["source"].endswith(str(inventory_cache.resolve()))
+
+
+def test_shapefiles_fingerprint_canonicalizes_external_overpass_cache_paths(tmp_path: Path) -> None:
+    config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
+    cached = tmp_path / "overpass.json"
+    cached.write_text(json.dumps({"elements": []}), encoding="utf-8")
+    relative_cached = Path(os.path.relpath(cached, Path.cwd()))
+
+    absolute_result = shapefiles.run(load_config(config_path), overpass_json_path=cached.resolve())
+    relative_result = shapefiles.run(load_config(config_path), overpass_json_path=relative_cached)
+
+    assert relative_result.manifest.input_state_fingerprint == absolute_result.manifest.input_state_fingerprint
+    assert relative_result.details["source"].endswith(str(cached.resolve()))
+
+
+def test_shapefiles_fingerprint_changes_for_effective_supplemental_crs_override(
+    tmp_path: Path,
+) -> None:
+    tree_path = tmp_path / "trees.shp"
+    surface_path = tmp_path / "streets.shp"
+    tree_path.write_bytes(b"tree fixture")
+    surface_path.write_bytes(b"surface fixture")
+    config = load_config(
+        _config_with_supplements(
+            tmp_path,
+            tree_path=tree_path,
+            surface_path=surface_path,
+        )
+    )
+    overridden = replace(
+        config,
+        shapefiles=replace(
+            config.shapefiles,
+            supplemental=tuple(
+                replace(item, crs="EPSG:25832") if item.name == "municipal_streets" else item
+                for item in config.shapefiles.supplemental
+            ),
+        ),
+    )
+
+    original_fingerprint = shapefiles._shapefiles_input_fingerprint(config, None)
+    overridden_fingerprint = shapefiles._shapefiles_input_fingerprint(overridden, None)
+
+    assert overridden_fingerprint != original_fingerprint
+
+
+def test_imagery_manifest_includes_success_and_wms_error_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = write_complete_config(
+        tmp_path / "config.toml",
+        output_root=tmp_path / "outputs",
+        imagery_block='''[[imagery.sources]]
+name = "Successful imagery"
+type = "wms"
+url = "https://example.test/wms"
+layer = "ortho"
+enabled = true
+crs = "EPSG:4326"
+format = "image/png"
+width = 32
+height = 24
+transparent = false
+
+[[imagery.sources]]
+name = "Error imagery"
+type = "wms"
+url = "https://example.test/wms"
+layer = "ortho"
+enabled = true
+crs = "EPSG:4326"
+format = "image/png"
+width = 32
+height = 24
+transparent = false''',
+    )
+    cached = tmp_path / "overpass.json"
+    cached.write_text(json.dumps({"elements": []}), encoding="utf-8")
+
+    class Response:
+        def __init__(self, payload: bytes, content_type: str) -> None:
+            self._payload = payload
+            self.headers = {"Content-Type": content_type}
+
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return self._payload
+
+    responses = iter(
+        (
+            Response(b"png-bytes", "image/png"),
+            Response(b"<ServiceException>broken</ServiceException>", "text/xml"),
+        )
+    )
+    monkeypatch.setattr(shapefiles.request, "urlopen", lambda *_args, **_kwargs: next(responses))
+
+    result = shapefiles.run(load_config(config_path), overpass_json_path=cached)
+
+    artifacts = {artifact.name: artifact for artifact in result.artifacts}
+    imagery_dir = result.output_directory / "imagery"
+    assert artifacts["imagery-successful_imagery-1-request"].path == imagery_dir / "successful_imagery_request.url"
+    assert artifacts["imagery-successful_imagery-1-request"].kind.value == "diagnostic"
+    assert artifacts["imagery-successful_imagery-1-image"].path == imagery_dir / "successful_imagery.png"
+    assert artifacts["imagery-successful_imagery-1-image"].kind.value == "supporting"
+    assert artifacts["imagery-error_imagery-2-request"].path == imagery_dir / "error_imagery_request.url"
+    assert artifacts["imagery-error_imagery-2-error"].path == imagery_dir / "error_imagery_error.txt"
+    assert artifacts["imagery-error_imagery-2-error"].kind.value == "diagnostic"
+    assert all(artifact.required for artifact in artifacts.values())
+
+
+def test_imagery_rerun_does_not_advertise_stale_fetched_image_after_wms_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = write_complete_config(
+        tmp_path / "config.toml",
+        output_root=tmp_path / "outputs",
+        imagery_block='''[[imagery.sources]]
+name = "Rerun imagery"
+type = "wms"
+url = "https://example.test/wms"
+layer = "ortho"
+enabled = true
+crs = "EPSG:4326"
+format = "image/png"
+width = 32
+height = 24
+transparent = false''',
+    )
+    cached = tmp_path / "overpass.json"
+    cached.write_text(json.dumps({"elements": []}), encoding="utf-8")
+
+    class Response:
+        def __init__(self, payload: bytes, content_type: str) -> None:
+            self._payload = payload
+            self.headers = {"Content-Type": content_type}
+
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return self._payload
+
+    responses = iter(
+        (
+            Response(b"png-bytes", "image/png"),
+            Response(b"<ServiceException>broken</ServiceException>", "text/xml"),
+        )
+    )
+    monkeypatch.setattr(shapefiles.request, "urlopen", lambda *_args, **_kwargs: next(responses))
+
+    first = shapefiles.run(load_config(config_path), overpass_json_path=cached)
+    second = shapefiles.run(load_config(config_path), overpass_json_path=cached)
+
+    stale_image_path = first.output_directory / "imagery" / "rerun_imagery.png"
+    assert stale_image_path.is_file()
+    artifacts = {artifact.name: artifact for artifact in second.artifacts}
+    assert "imagery-rerun_imagery-1-image" not in artifacts
+    assert artifacts["imagery-rerun_imagery-1-request"].path.is_file()
+    assert artifacts["imagery-rerun_imagery-1-error"].path.is_file()
+    diagnostics = json.loads(second.imagery_diagnostics_path.read_text(encoding="utf-8"))
+    assert diagnostics["sources"][0]["status"] == "error"
 
 
 def test_merge_overpass_batches_deduplicates_elements() -> None:

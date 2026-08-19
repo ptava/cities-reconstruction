@@ -7,19 +7,30 @@ itself yet, and it does not overwrite stage-1 reconstruction inputs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from html import escape
 import json
 import math
+from dataclasses import dataclass
+from html import escape
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 from shapely.validation import make_valid
 
+from cities_reconstruction.artifacts import lightweight_state_fingerprint
 from cities_reconstruction.config import AppConfig
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    ArtifactReference,
+    JsonValue,
+    StageManifest,
+    StageStatus,
+    invalidate_stage_manifests,
+    publish_stage_manifest,
+    require_completed_manifest,
+    require_manifest_artifact,
+)
 from cities_reconstruction.stage_result import StageResult
-
 
 EARTH_RADIUS_M = 6_371_000.0
 DEFAULT_SEGMENTATION_INPUT_NAME = "segmentation_input.geojson"
@@ -53,7 +64,7 @@ BASE_STYLES = {
 
 @dataclass(frozen=True)
 class VisualEnrichmentStageOutput:
-    output_directory: Path
+    manifest: StageManifest
     candidate_building_footprints_path: Path
     candidate_terrain_surfaces_path: Path
     candidate_roads_paved_concrete_path: Path
@@ -63,30 +74,49 @@ class VisualEnrichmentStageOutput:
     segmentation_input_template_path: Path
     sat2lod2_handoff_manifest_path: Path
     segmentation_overlay_path: Path
-    report_path: Path
     source_feature_count: int
     segmentation_feature_count: int
     sat2lod2_feature_count: int
     candidate_count: int
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "output_directory": str(self.output_directory),
-            "candidate_building_footprints_path": str(self.candidate_building_footprints_path),
-            "candidate_terrain_surfaces_path": str(self.candidate_terrain_surfaces_path),
-            "candidate_roads_paved_concrete_path": str(self.candidate_roads_paved_concrete_path),
-            "visual_enrichment_delta_path": str(self.visual_enrichment_delta_path),
-            "enriched_all_features_path": str(self.enriched_all_features_path),
-            "segmentation_diagnostics_path": str(self.segmentation_diagnostics_path),
-            "segmentation_input_template_path": str(self.segmentation_input_template_path),
-            "sat2lod2_handoff_manifest_path": str(self.sat2lod2_handoff_manifest_path),
-            "segmentation_overlay_path": str(self.segmentation_overlay_path),
-            "report_path": str(self.report_path),
-            "source_feature_count": self.source_feature_count,
-            "segmentation_feature_count": self.segmentation_feature_count,
-            "sat2lod2_feature_count": self.sat2lod2_feature_count,
-            "candidate_count": self.candidate_count,
-        }
+    @property
+    def stage(self) -> str:
+        return self.manifest.stage
+
+    @property
+    def status(self) -> StageStatus:
+        return self.manifest.status
+
+    @property
+    def output_directory(self) -> Path:
+        return self.manifest.output_directory
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.manifest.manifest_path
+
+    @property
+    def report_path(self) -> Path:
+        return self.manifest.report_path
+
+    @property
+    def preview_path(self) -> Path:
+        return self.manifest.preview_path
+
+    @property
+    def artifacts(self) -> tuple[ArtifactReference, ...]:
+        return self.manifest.artifacts
+
+    @property
+    def metrics(self) -> dict[str, JsonValue]:
+        return self.manifest.metrics
+
+    @property
+    def details(self) -> dict[str, JsonValue]:
+        return self.manifest.details
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return self.manifest.to_dict()
 
 
 def plan(config: AppConfig) -> StageResult:
@@ -115,16 +145,25 @@ def run(
 ) -> VisualEnrichmentStageOutput:
     """Execute visual enrichment using reviewable external segmentation polygons."""
 
-    stage1_dir = config.output.root_directory / "01_shapefiles"
-    source_features_path = stage1_dir / "all_features.geojson"
-    imagery_diagnostics_path = stage1_dir / "imagery_diagnostics.json"
-    if not source_features_path.exists():
-        raise FileNotFoundError(
-            f"visual-enrichment requires stage-1 features at {source_features_path}; run the shapefiles stage first"
-        )
-
     output_dir = config.output.root_directory / "02_visual_enrichment"
     output_dir.mkdir(parents=True, exist_ok=True)
+    invalidate_stage_manifests(output_dir)
+    segmentation_geojson_path = (
+        segmentation_geojson_path.resolve() if segmentation_geojson_path is not None else None
+    )
+    sat2lod2_geojson_path = sat2lod2_geojson_path.resolve() if sat2lod2_geojson_path is not None else None
+    stage1_dir = config.output.root_directory / "01_shapefiles"
+    stage1_manifest = require_completed_manifest(
+        stage1_dir / "manifest.json",
+        expected_stage="shapefiles",
+    )
+    source_features_path = require_manifest_artifact(
+        stage1_manifest,
+        name="all-features",
+        kind=ArtifactKind.HANDOFF,
+    ).path
+    imagery_diagnostics_path = stage1_dir / "imagery_diagnostics.json"
+
     default_segmentation_path = output_dir / DEFAULT_SEGMENTATION_INPUT_NAME
     segmentation_path = segmentation_geojson_path or (default_segmentation_path if default_segmentation_path.exists() else None)
     default_sat2lod2_path = output_dir / DEFAULT_SAT2LOD2_POLYGONS_NAME
@@ -216,8 +255,47 @@ def run(
         encoding="utf-8",
     )
 
-    return VisualEnrichmentStageOutput(
+    artifacts = (
+        ArtifactReference("candidate-building-footprints", candidate_buildings_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("candidate-terrain-surfaces", candidate_terrain_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("candidate-roads-paved-concrete", candidate_roads_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("visual-enrichment-delta", delta_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("enriched-all-features", enriched_all_features_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("segmentation-diagnostics", diagnostics_path, ArtifactKind.DIAGNOSTIC),
+        ArtifactReference("segmentation-input-template", template_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("sat2lod2-handoff", sat2lod2_manifest_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("segmentation-overlay", overlay_path, ArtifactKind.PREVIEW),
+        ArtifactReference("report", report_path, ArtifactKind.REPORT),
+    )
+    manifest = publish_stage_manifest(
+        stage="visual-enrichment",
+        status=StageStatus.COMPLETED,
         output_directory=output_dir,
+        report_path=report_path,
+        preview_path=overlay_path,
+        input_state_fingerprint=_visual_enrichment_input_fingerprint(
+            config,
+            source_features_path,
+            imagery_diagnostics_path,
+            segmentation_path,
+            sat2lod2_path,
+        ),
+        artifacts=artifacts,
+        metrics={
+            "source_feature_count": len(source_features),
+            "segmentation_feature_count": len(segmentation_features),
+            "sat2lod2_feature_count": len(sat2lod2_features),
+            "candidate_count": len(candidates),
+        },
+        details={
+            "review_only": True,
+            "segmentation_source": str(segmentation_path) if segmentation_path is not None else None,
+            "sat2lod2_source": str(sat2lod2_path) if sat2lod2_path is not None else None,
+        },
+    )
+
+    return VisualEnrichmentStageOutput(
+        manifest=manifest,
         candidate_building_footprints_path=candidate_buildings_path,
         candidate_terrain_surfaces_path=candidate_terrain_path,
         candidate_roads_paved_concrete_path=candidate_roads_path,
@@ -227,11 +305,42 @@ def run(
         segmentation_input_template_path=template_path,
         sat2lod2_handoff_manifest_path=sat2lod2_manifest_path,
         segmentation_overlay_path=overlay_path,
-        report_path=report_path,
         source_feature_count=len(source_features),
         segmentation_feature_count=len(segmentation_features),
         sat2lod2_feature_count=len(sat2lod2_features),
         candidate_count=len(candidates),
+    )
+
+
+def _visual_enrichment_input_fingerprint(
+    config: AppConfig,
+    source_features_path: Path,
+    imagery_diagnostics_path: Path,
+    segmentation_path: Path | None,
+    sat2lod2_path: Path | None,
+) -> dict[str, JsonValue]:
+    """Fingerprint the Stage 1 handoff and optional external review inputs."""
+
+    paths = [config.path, source_features_path]
+    if imagery_diagnostics_path.is_file():
+        paths.append(imagery_diagnostics_path)
+    stage1_manifest_path = source_features_path.parent / "manifest.json"
+    if stage1_manifest_path.is_file():
+        paths.append(stage1_manifest_path)
+    if segmentation_path is not None:
+        paths.append(segmentation_path)
+    if sat2lod2_path is not None:
+        paths.append(sat2lod2_path)
+    return lightweight_state_fingerprint(
+        {
+            "stage": "visual-enrichment",
+            "crs": config.region.crs,
+            "stage1_features": str(source_features_path),
+            "segmentation_source": str(segmentation_path) if segmentation_path is not None else None,
+            "sat2lod2_source": str(sat2lod2_path) if sat2lod2_path is not None else None,
+            "review_only": True,
+        },
+        paths,
     )
 
 
@@ -353,7 +462,7 @@ def _candidate_geometry(feature: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _feature_shape(feature: dict[str, Any]) -> Polygon | MultiPolygon:
-    return make_valid(shape(feature["geometry"]))
+    return cast(Polygon | MultiPolygon, make_valid(shape(feature["geometry"])))
 
 
 def _target_group(semantic_class: str) -> str | None:

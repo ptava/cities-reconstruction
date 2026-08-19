@@ -2,19 +2,33 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from html import escape
+import hashlib
 import json
 import math
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from html import escape
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from shapely.geometry import MultiPoint, Point, shape
 
+from cities_reconstruction.artifacts import lightweight_state_fingerprint
 from cities_reconstruction.config import AppConfig, ConfigError
 from cities_reconstruction.geometry.terrain import (
     load_terrain_sampler,
     validate_completed_city_models_terrain,
+)
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    ArtifactReference,
+    JsonValue,
+    StageManifest,
+    StageStatus,
+    invalidate_stage_manifests,
+    publish_stage_manifest,
+    require_completed_manifest,
+    require_manifest_artifact,
 )
 from cities_reconstruction.stage_result import StageResult
 
@@ -56,34 +70,54 @@ class TreeInstance:
 
 @dataclass(frozen=True)
 class TreesStageOutput:
-    output_directory: Path
+    manifest: StageManifest
     placement_geojson_path: Path
     library_path: Path
-    manifest_path: Path
     surfaces_directory: Path
     trunks_stl_path: Path
     crowns_stl_path: Path
     combined_stl_path: Path
-    preview_path: Path
-    report_path: Path
     tree_count: int
     species_counts: dict[str, int]
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "output_directory": str(self.output_directory),
-            "placement_geojson_path": str(self.placement_geojson_path),
-            "library_path": str(self.library_path),
-            "manifest_path": str(self.manifest_path),
-            "surfaces_directory": str(self.surfaces_directory),
-            "trunks_stl_path": str(self.trunks_stl_path),
-            "crowns_stl_path": str(self.crowns_stl_path),
-            "combined_stl_path": str(self.combined_stl_path),
-            "preview_path": str(self.preview_path),
-            "report_path": str(self.report_path),
-            "tree_count": self.tree_count,
-            "species_counts": dict(self.species_counts),
-        }
+    @property
+    def stage(self) -> str:
+        return self.manifest.stage
+
+    @property
+    def status(self) -> StageStatus:
+        return self.manifest.status
+
+    @property
+    def output_directory(self) -> Path:
+        return self.manifest.output_directory
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.manifest.manifest_path
+
+    @property
+    def report_path(self) -> Path:
+        return self.manifest.report_path
+
+    @property
+    def preview_path(self) -> Path:
+        return self.manifest.preview_path
+
+    @property
+    def artifacts(self) -> tuple[ArtifactReference, ...]:
+        return self.manifest.artifacts
+
+    @property
+    def metrics(self) -> dict[str, JsonValue]:
+        return self.manifest.metrics
+
+    @property
+    def details(self) -> dict[str, JsonValue]:
+        return self.manifest.details
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return self.manifest.to_dict()
 
 
 TREE_TERRAIN_CLEARANCE_M = 0.05
@@ -115,22 +149,32 @@ def plan(config: AppConfig) -> StageResult:
 def run(config: AppConfig) -> TreesStageOutput:
     """Generate deterministic parametric tree meshes from stage-1 tree features."""
 
+    output_dir = config.output.root_directory / "04_trees"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    invalidate_stage_manifests(
+        output_dir,
+        legacy_names=("tree_models_manifest.json",),
+    )
     if config.region.crs != "EPSG:25832":
         raise ConfigError("tree model generation currently supports EPSG:25832 output coordinates")
 
-    tree_features_path = config.output.root_directory / "01_shapefiles" / "trees.geojson"
-    if not tree_features_path.exists():
-        raise ConfigError("missing tree GeoJSON. Run `shapefiles` before `trees`.")
+    stage1_manifest = require_completed_manifest(
+        config.output.root_directory / "01_shapefiles" / "manifest.json",
+        expected_stage="shapefiles",
+    )
+    tree_features_path = require_manifest_artifact(
+        stage1_manifest,
+        name="category-trees",
+        kind=ArtifactKind.HANDOFF,
+    ).path
 
     features = _read_feature_collection(tree_features_path)
-    output_dir = config.output.root_directory / "04_trees"
     surfaces_dir = output_dir / "surfaces"
-    output_dir.mkdir(parents=True, exist_ok=True)
     surfaces_dir.mkdir(parents=True, exist_ok=True)
 
     placement_path = output_dir / "tree_placements.geojson"
     library_path = output_dir / "tree_species_library.json"
-    manifest_path = output_dir / "tree_models_manifest.json"
+    manifest_path = output_dir / "manifest.json"
     report_path = output_dir / "tree_models_report.md"
     preview_path = output_dir / "tree_models_preview.html"
     trunks_stl_path = surfaces_dir / "tree_trunks.stl"
@@ -161,30 +205,6 @@ def run(config: AppConfig) -> TreesStageOutput:
     species_counts = _species_counts(instances)
     placement_path.write_text(json.dumps(_placement_geojson(instances), indent=2, sort_keys=True), encoding="utf-8")
     library_path.write_text(json.dumps(_library_payload(config), indent=2, sort_keys=True), encoding="utf-8")
-    manifest_path.write_text(
-        json.dumps(
-            _manifest_payload(
-                config,
-                tree_features_path,
-                placement_path,
-                library_path,
-                trunks_stl_path,
-                crowns_stl_path,
-                combined_stl_path,
-                species_crown_paths,
-                preview_path,
-                report_path,
-                instances,
-                species_counts,
-                surface_origin_x,
-                surface_origin_y,
-                terrain_geometry_path,
-            ),
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
     preview_path.write_text(_render_preview(config, instances, surface_origin_x, surface_origin_y), encoding="utf-8")
     report_path.write_text(
         _render_report(
@@ -206,18 +226,61 @@ def run(config: AppConfig) -> TreesStageOutput:
         ),
         encoding="utf-8",
     )
+    artifacts = (
+        ArtifactReference("trees-combined-surface", combined_stl_path, ArtifactKind.HANDOFF),
+        ArtifactReference("tree-trunks-surface", trunks_stl_path, ArtifactKind.HANDOFF),
+        ArtifactReference("tree-crowns-surface", crowns_stl_path, ArtifactKind.HANDOFF),
+        *(
+            ArtifactReference(
+                f"species-crown-{path.stem.removesuffix('_crowns')}",
+                path,
+                ArtifactKind.HANDOFF,
+            )
+            for species, path in sorted(species_crown_paths.items())
+        ),
+        ArtifactReference("tree-placements", placement_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("species-library", library_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("report", report_path, ArtifactKind.REPORT),
+        ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
+    )
+    manifest = publish_stage_manifest(
+        stage="trees",
+        status=StageStatus.COMPLETED,
+        output_directory=output_dir,
+        report_path=report_path,
+        preview_path=preview_path,
+        input_state_fingerprint=_trees_input_fingerprint(config, tree_features_path, terrain_geometry_path),
+        artifacts=artifacts,
+        metrics={
+            "tree_count": len(instances),
+            "species_counts": _json_counts(species_counts),
+            "category_counts": _json_counts(_category_counts(instances)),
+        },
+        details=_manifest_payload(
+            config,
+            tree_features_path,
+            placement_path,
+            library_path,
+            trunks_stl_path,
+            crowns_stl_path,
+            combined_stl_path,
+            species_crown_paths,
+            instances,
+            species_counts,
+            surface_origin_x,
+            surface_origin_y,
+            terrain_geometry_path,
+        ),
+    )
 
     return TreesStageOutput(
-        output_directory=output_dir,
+        manifest=manifest,
         placement_geojson_path=placement_path,
         library_path=library_path,
-        manifest_path=manifest_path,
         surfaces_directory=surfaces_dir,
         trunks_stl_path=trunks_stl_path,
         crowns_stl_path=crowns_stl_path,
         combined_stl_path=combined_stl_path,
-        preview_path=preview_path,
-        report_path=report_path,
         tree_count=len(instances),
         species_counts=species_counts,
     )
@@ -274,9 +337,10 @@ def _build_tree_instances(
                 raise ConfigError(
                     f"tree species {source_species!r} is not present in configured species_category_mapping.json"
                 )
-            model = _match_category(mapped_category, configured_models)
-            if model is None:
+            matched_model = _match_category(mapped_category, configured_models)
+            if matched_model is None:
                 raise ConfigError(f"tree species {source_species!r} maps to unavailable category {mapped_category!r}")
+            model = matched_model
             model_source = f"tag:{source_species_key}:species_category_mapping"
             species_name = source_species
         elif direct_model is None:
@@ -289,20 +353,42 @@ def _build_tree_instances(
         x, y = _lonlat_to_epsg25832(float(point.x), float(point.y))
         terrain_z = 0.0
         if direct_model is not None:
+            def fallback_height(
+                tags: dict[str, Any] = tags,
+                model: TreeSpeciesModel = model,
+            ) -> tuple[float, str]:
+                return _tree_height(tags, model)
+
             height, height_source = _planned_dimension_or(
                 properties,
                 "height_m",
-                lambda: _tree_height(tags, model),
+                fallback_height,
             )
+
+            def fallback_crown_radius(
+                tags: dict[str, Any] = tags,
+                model: TreeSpeciesModel = model,
+                height: float = height,
+            ) -> tuple[float, str]:
+                return _crown_radius(tags, model, height)
+
             crown_radius, crown_radius_source = _planned_radius_or(
                 properties,
                 "crown_diameter_m",
-                lambda: _crown_radius(tags, model, height),
+                fallback_crown_radius,
             )
+
+            def fallback_trunk_radius(
+                tags: dict[str, Any] = tags,
+                model: TreeSpeciesModel = model,
+                height: float = height,
+            ) -> tuple[float, str]:
+                return _trunk_radius(tags, model, height)
+
             trunk_radius, trunk_radius_source = _planned_radius_or(
                 properties,
                 "trunk_diameter_m",
-                lambda: _trunk_radius(tags, model, height),
+                fallback_trunk_radius,
             )
         else:
             height, height_source = _tree_height(tags, model)
@@ -511,7 +597,7 @@ def _species_category_mapping(config: AppConfig) -> dict[str, str]:
     raw_mapping = payload.get("species_to_category")
     if not isinstance(raw_mapping, dict):
         raise ConfigError(f"tree species category mapping must contain species_to_category: {path}")
-    mapping: dict[str | None, str] = {}
+    mapping: dict[str, str] = {}
     for species, category in raw_mapping.items():
         if not isinstance(species, str) or not isinstance(category, str) or not category:
             raise ConfigError(f"invalid species/category entry in {path}")
@@ -665,14 +751,47 @@ def _write_species_crown_stls(
     grouped: dict[str, list[Triangle]] = {}
     for instance in instances:
         grouped.setdefault(instance.species, []).extend(_crown_triangles(instance))
+    slugs = _unique_species_slugs(grouped)
     paths: dict[str, Path] = {}
     for species, triangles in sorted(grouped.items()):
-        slug = _slug(species)
+        slug = slugs[species]
         path = species_crowns_dir / f"{slug}_crowns.stl"
         local_triangles = _translate_triangles(triangles, -surface_origin_x, -surface_origin_y, 0.0)
         _write_stl(path, slug, local_triangles)
         paths[species] = path
     return paths
+
+
+def _unique_species_slugs(species_names: Iterable[str]) -> dict[str, str]:
+    names = sorted(set(species_names))
+    grouped: dict[str, list[str]] = {}
+    for name in names:
+        grouped.setdefault(_slug(name), []).append(name)
+
+    reserved = set(grouped)
+    used: set[str] = set()
+    result: dict[str, str] = {}
+    for base_slug, colliding_names in sorted(grouped.items()):
+        for index, name in enumerate(colliding_names):
+            if index == 0:
+                candidate = base_slug
+            else:
+                digest = hashlib.sha256(name.encode("utf-8")).hexdigest()
+                candidate = ""
+                for length in range(8, len(digest) + 1):
+                    proposed = f"{base_slug}_{digest[:length]}"
+                    if proposed not in reserved and proposed not in used:
+                        candidate = proposed
+                        break
+                if not candidate:
+                    suffix = 2
+                    candidate = f"{base_slug}_{digest}_{suffix}"
+                    while candidate in reserved or candidate in used:
+                        suffix += 1
+                        candidate = f"{base_slug}_{digest}_{suffix}"
+            used.add(candidate)
+            result[name] = candidate
+    return result
 
 
 def _slug(value: str) -> str:
@@ -928,8 +1047,6 @@ def _manifest_payload(
     crowns_stl_path: Path,
     combined_stl_path: Path,
     species_crown_paths: dict[str, Path],
-    preview_path: Path,
-    report_path: Path,
     instances: list[TreeInstance],
     species_counts: dict[str, int],
     surface_origin_x: float,
@@ -937,7 +1054,6 @@ def _manifest_payload(
     terrain_geometry_path: Path | None,
 ) -> dict[str, Any]:
     return {
-        "stage": "trees",
         "region": config.region.name,
         "crs": config.region.crs,
         "source_tree_features": str(tree_features_path),
@@ -949,8 +1065,6 @@ def _manifest_payload(
             "combined": str(combined_stl_path),
             "species_crowns": {species: str(path) for species, path in species_crown_paths.items()},
         },
-        "preview": str(preview_path),
-        "report": str(report_path),
         "tree_count": len(instances),
         "species_counts": species_counts,
         "category_counts": _category_counts(instances),
@@ -968,8 +1082,34 @@ def _manifest_payload(
         },
         "terrain_geometry_path": str(terrain_geometry_path) if terrain_geometry_path is not None else None,
         "tree_information": [_tree_information_payload(instance) for instance in instances],
-        "status": "parametric_tree_models_generated",
     }
+
+
+def _trees_input_fingerprint(
+    config: AppConfig,
+    tree_features_path: Path,
+    terrain_geometry_path: Path | None,
+) -> dict[str, JsonValue]:
+    paths = [config.path, tree_features_path]
+    if config.trees.model_library_path is not None:
+        paths.append(config.trees.model_library_path)
+    if config.trees.category_mapping_path is not None:
+        paths.append(config.trees.category_mapping_path)
+    if terrain_geometry_path is not None:
+        paths.append(terrain_geometry_path)
+    return lightweight_state_fingerprint(
+        {
+            "stage": "trees",
+            "crs": config.region.crs,
+            "default_species": config.trees.default,
+            "terrain_geometry_path": str(terrain_geometry_path) if terrain_geometry_path else None,
+        },
+        paths,
+    )
+
+
+def _json_counts(counts: dict[str, int]) -> dict[str, JsonValue]:
+    return {name: count for name, count in counts.items()}
 
 
 def _tree_information_payload(instance: TreeInstance) -> dict[str, Any]:

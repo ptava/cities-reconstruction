@@ -77,7 +77,7 @@ class ShapefilesConfig:
 @dataclass(frozen=True)
 class TreeConfig:
     default: str
-    model_library_path: Path | None
+    model_library_path: Path
     category_mapping_path: Path | None
 
 

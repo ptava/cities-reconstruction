@@ -333,6 +333,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "types-shapely" },
 ]
 
 [package.metadata]
@@ -345,6 +346,7 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=6.2" },
     { name = "ruff", specifier = ">=0.12" },
+    { name = "types-shapely", specifier = ">=2.1" },
 ]
 
 [[package]]
@@ -2199,6 +2201,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d7/1a/1701aaf3450def4b17cb3580d0a340361065b1d258e156861eb83a8377f2/trame_vuetify-3.2.2.tar.gz", hash = "sha256:0e111ec5fdfed31e5c189eafb306f4f25aacd75527b3a5612bb5a4cacbb18d8b", size = 5107360, upload-time = "2026-04-28T13:22:53.684Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ac/3a/0dbff3ce4fd9cc6076fce8ef714c33796bd25d08b3d249ca78ea458a85fd/trame_vuetify-3.2.2-py3-none-any.whl", hash = "sha256:b40ecfa30a675df4ce40d5161b9b6c040cfe5445599933c478a3359afbee91d3", size = 5134630, upload-time = "2026-04-28T13:22:51.132Z" },
+]
+
+[[package]]
+name = "types-shapely"
+version = "2.1.0.20260728"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/be/cf/1ea740a3532b6e4cdeae8ba121618eb58a543eba2721016d358e4c0992e3/types_shapely-2.1.0.20260728.tar.gz", hash = "sha256:8ec23a5aa484c1ec7bbc56aa353cc230ae63e38e0f35a6e4b79a011d99bcfcc2", size = 27501, upload-time = "2026-07-28T04:51:41.724Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/79/8d/2e6c38118cc6b20075ccd1609840314aa8a694a255a09149b185d8a608e1/types_shapely-2.1.0.20260728-py3-none-any.whl", hash = "sha256:7299a62025528b3f0cc5af37095f05fbe7d76d399bdc8d7ea9b3d395e988f547", size = 38539, upload-time = "2026-07-28T04:51:40.638Z" },
 ]
 
 [[package]]

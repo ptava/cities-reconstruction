@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from html import escape
 import json
 import math
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
 from typing import Any
 
-from cities_reconstruction import __version__
-from cities_reconstruction.artifacts import atomic_write_json, atomic_write_text, stage_output_lock
+from cities_reconstruction.artifacts import (
+    atomic_write_json,
+    atomic_write_text,
+    lightweight_state_fingerprint,
+    stage_output_lock,
+)
 from cities_reconstruction.config import AppConfig, ConfigError
 from cities_reconstruction.geometry.stl_regions import (
     REGION_NAMES,
@@ -26,8 +30,19 @@ from cities_reconstruction.geometry.terrain import (
     load_terrain_sampler,
     validate_completed_city_models_terrain,
 )
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    ArtifactReference,
+    JsonValue,
+    StageManifest,
+    StageStatus,
+    invalidate_stage_manifests,
+    load_stage_manifest,
+    publish_stage_manifest,
+    require_completed_manifest,
+    require_manifest_artifact,
+)
 from cities_reconstruction.stage_result import StageResult
-
 
 PURIFIER_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 TERRAIN_CLEARANCE_M = 0.05
@@ -81,32 +96,53 @@ class AirPurifierInstance:
 
 @dataclass(frozen=True)
 class AirPurifiersStageOutput:
-    output_directory: Path
+    manifest: StageManifest
     placement_geojson_path: Path
     catalog_path: Path
-    manifest_path: Path
     surfaces_directory: Path
     combined_stl_path: Path
     instance_stl_paths: dict[str, Path]
-    preview_path: Path
-    report_path: Path
     purifier_count: int
     model_counts: dict[str, int]
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "output_directory": str(self.output_directory),
-            "placement_geojson_path": str(self.placement_geojson_path),
-            "catalog_path": str(self.catalog_path),
-            "manifest_path": str(self.manifest_path),
-            "surfaces_directory": str(self.surfaces_directory),
-            "combined_stl_path": str(self.combined_stl_path),
-            "instance_stl_paths": {key: str(value) for key, value in sorted(self.instance_stl_paths.items())},
-            "preview_path": str(self.preview_path),
-            "report_path": str(self.report_path),
-            "purifier_count": self.purifier_count,
-            "model_counts": dict(sorted(self.model_counts.items())),
-        }
+    @property
+    def stage(self) -> str:
+        return self.manifest.stage
+
+    @property
+    def status(self) -> StageStatus:
+        return self.manifest.status
+
+    @property
+    def output_directory(self) -> Path:
+        return self.manifest.output_directory
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.manifest.manifest_path
+
+    @property
+    def report_path(self) -> Path:
+        return self.manifest.report_path
+
+    @property
+    def preview_path(self) -> Path:
+        return self.manifest.preview_path
+
+    @property
+    def artifacts(self) -> tuple[ArtifactReference, ...]:
+        return self.manifest.artifacts
+
+    @property
+    def metrics(self) -> dict[str, JsonValue]:
+        return self.manifest.metrics
+
+    @property
+    def details(self) -> dict[str, JsonValue]:
+        return self.manifest.details
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return self.manifest.to_dict()
 
 
 def plan(config: AppConfig) -> StageResult:
@@ -133,14 +169,21 @@ def run(
     model_library_path: Path | str | None = None,
     terrain_geometry_path: Path | str | None = None,
 ) -> AirPurifiersStageOutput:
-    if config.region.crs != "EPSG:25832":
-        raise ConfigError("air-purifier generation currently supports EPSG:25832 output coordinates")
     output_dir = config.output.root_directory / "05_air_purifiers"
+    instances_dir = output_dir / "surfaces" / "instances"
     with stage_output_lock(output_dir, "air-purifiers"):
+        prior_instance_paths = _prior_instance_allowlist(output_dir / "manifest.json", instances_dir)
+        invalidate_stage_manifests(
+            output_dir,
+            legacy_names=("air_purifier_models_manifest.json",),
+        )
+        if config.region.crs != "EPSG:25832":
+            raise ConfigError("air-purifier generation currently supports EPSG:25832 output coordinates")
         return _run_locked(
             config,
             model_library_path=_effective_path(config, model_library_path, config.air_purifiers.model_library_path),
             terrain_geometry_path=_effective_path(config, terrain_geometry_path, config.air_purifiers.terrain_geometry_path),
+            prior_instance_paths=prior_instance_paths,
         )
 
 
@@ -149,24 +192,28 @@ def _run_locked(
     *,
     model_library_path: Path | None,
     terrain_geometry_path: Path | None,
+    prior_instance_paths: set[Path],
 ) -> AirPurifiersStageOutput:
     if model_library_path is None:
         raise ConfigError("air-purifier model library is unresolved; configure model_library_path or provide an override")
-    source_geojson = config.output.root_directory / "01_shapefiles" / "air_purifiers.geojson"
-    if not source_geojson.exists():
-        raise ConfigError("missing air-purifier GeoJSON. Run `shapefiles` before `air-purifiers`.")
+    stage1_manifest = require_completed_manifest(
+        config.output.root_directory / "01_shapefiles" / "manifest.json",
+        expected_stage="shapefiles",
+    )
+    source_geojson = require_manifest_artifact(
+        stage1_manifest,
+        name="air-purifiers",
+        kind=ArtifactKind.HANDOFF,
+    ).path
 
     output_dir = config.output.root_directory / "05_air_purifiers"
     surfaces_dir = output_dir / "surfaces"
     instances_dir = surfaces_dir / "instances"
     placement_path = output_dir / "air_purifier_placements.geojson"
-    manifest_path = output_dir / "air_purifier_models_manifest.json"
+    manifest_path = output_dir / "manifest.json"
     preview_path = output_dir / "air_purifier_models_preview.html"
     report_path = output_dir / "air_purifier_models_report.md"
     combined_path = surfaces_dir / "air_purifiers_combined.stl"
-    prior_instance_paths = _prior_instance_allowlist(manifest_path, instances_dir)
-    manifest_path.unlink(missing_ok=True)
-
     models = _load_model_library(model_library_path)
     features = _load_features(source_geojson)
     origin_x, origin_y = _lonlat_to_epsg25832(config.region.center_lon, config.region.center_lat)
@@ -224,48 +271,65 @@ def _run_locked(
             placement_path, combined_path, instance_paths, preview_path, manifest_path,
         ),
     )
-    manifest = {
-        "manifest_schema_version": 1,
-        "application_version": __version__,
-        "stage": "air-purifiers",
-        "stage_status": "completed",
-        "source_geojson": str(source_geojson),
-        "model_library": str(model_library_path),
-        "model_files": {name: str(model.source_path) for name, model in sorted(models.items())},
-        "resolved_overrides": {
-            "model_library_path": str(model_library_path),
-            "terrain_geometry_path": str(terrain_geometry_path) if terrain_geometry_path else None,
+    artifacts = (
+        ArtifactReference("combined-surface", combined_path, ArtifactKind.HANDOFF),
+        *(
+            ArtifactReference(f"instance-{purifier_id}", path, ArtifactKind.HANDOFF)
+            for purifier_id, path in sorted(instance_paths.items())
+        ),
+        ArtifactReference("placements", placement_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("report", report_path, ArtifactKind.REPORT),
+        ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
+    )
+    manifest = publish_stage_manifest(
+        stage="air-purifiers",
+        status=StageStatus.COMPLETED,
+        output_directory=output_dir,
+        report_path=report_path,
+        preview_path=preview_path,
+        input_state_fingerprint=_air_purifiers_input_fingerprint(
+            config,
+            source_geojson,
+            model_library_path,
+            terrain_geometry_path,
+            models,
+        ),
+        artifacts=artifacts,
+        metrics={
+            "purifier_count": len(instances),
+            "model_counts": _json_counts(model_counts),
+            "input_counts": _json_counts(input_counts),
+            "parameter_source_counts": {
+                field: _json_counts(counts)
+                for field, counts in parameter_source_counts.items()
+            },
         },
-        "local_origin": {"crs": "EPSG:25832", "easting": origin_x, "northing": origin_y},
-        "terrain": {
-            "path": str(terrain_geometry_path) if terrain_geometry_path else None,
-            "status": "projected" if terrain_geometry_path else "z=0 fallback",
-            "base_clearance_m": TERRAIN_CLEARANCE_M if terrain_geometry_path else 0.0,
-            "footprint_validation": "all four rotated bounding-box corners",
-        },
-        "counts": {
-            "purifiers": len(instances), "models": model_counts,
-            "inputs": input_counts,
-        },
-        "parameter_source_counts": parameter_source_counts,
-        "outputs": {
-            "placements": str(placement_path), "combined_surface": str(combined_path),
-            "instances": {key: str(value) for key, value in sorted(instance_paths.items())},
-            "preview": str(preview_path), "report": str(report_path),
+        details={
+            "source_geojson": str(source_geojson),
+            "model_library": str(model_library_path),
+            "model_files": {name: str(model.source_path) for name, model in sorted(models.items())},
+            "resolved_overrides": {
+                "model_library_path": str(model_library_path),
+                "terrain_geometry_path": str(terrain_geometry_path) if terrain_geometry_path else None,
+            },
+            "local_origin": {"crs": "EPSG:25832", "easting": origin_x, "northing": origin_y},
+            "terrain": {
+                "path": str(terrain_geometry_path) if terrain_geometry_path else None,
+                "status": "projected" if terrain_geometry_path else "z=0 fallback",
+                "base_clearance_m": TERRAIN_CLEARANCE_M if terrain_geometry_path else 0.0,
+                "footprint_validation": "all four rotated bounding-box corners",
+            },
             "openfoam_handoff": {
                 "aggregate_surface": str(combined_path),
                 "regions": list(REGION_NAMES),
             },
         },
-    }
-    # Completion marker: no artifact is written after this manifest.
-    atomic_write_json(manifest_path, manifest)
+    )
     return AirPurifiersStageOutput(
-        output_directory=output_dir, placement_geojson_path=placement_path,
-        catalog_path=model_library_path, manifest_path=manifest_path,
+        manifest=manifest, placement_geojson_path=placement_path,
+        catalog_path=model_library_path,
         surfaces_directory=surfaces_dir, combined_stl_path=combined_path,
-        instance_stl_paths=instance_paths, preview_path=preview_path,
-        report_path=report_path, purifier_count=len(instances), model_counts=model_counts,
+        instance_stl_paths=instance_paths, purifier_count=len(instances), model_counts=model_counts,
     )
 
 
@@ -313,7 +377,10 @@ def _load_model_library(path: Path) -> dict[str, AirPurifierModel]:
         bounds = mesh_bounds(mesh)
         actual = (bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
         expected = (width, depth, height)
-        if abs(bounds[4]) > tolerance or any(abs(left - right) > tolerance for left, right in zip(actual, expected)):
+        if abs(bounds[4]) > tolerance or any(
+            abs(left - right) > tolerance
+            for left, right in zip(actual, expected, strict=True)
+        ):
             raise ConfigError(
                 f"air-purifier model {name!r} bounds {actual!r} and base z={bounds[4]} "
                 f"do not match catalog dimensions {expected!r} within {tolerance} m: {source_path}"
@@ -617,24 +684,49 @@ The surfaces preserve the exact `inlet`, `outlet`, and `tower` exterior patch re
 
 
 def _prior_instance_allowlist(manifest_path: Path, instances_dir: Path) -> set[Path]:
-    if not manifest_path.exists():
-        return set()
     try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        raw = payload["outputs"]["instances"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
-        return set()
-    if not isinstance(raw, dict):
+        manifest = load_stage_manifest(manifest_path, expected_stage="air-purifiers")
+    except ConfigError:
         return set()
     parent = instances_dir.resolve()
     allowed: set[Path] = set()
-    for purifier_id, value in raw.items():
-        if not isinstance(purifier_id, str) or not PURIFIER_ID_PATTERN.fullmatch(purifier_id) or not isinstance(value, str):
+    for artifact in manifest.artifacts:
+        if artifact.kind is not ArtifactKind.HANDOFF:
             continue
-        path = Path(value).resolve()
+        path = artifact.path.resolve()
+        purifier_id = path.stem
+        if not PURIFIER_ID_PATTERN.fullmatch(purifier_id):
+            continue
         if path.parent == parent and path.name == f"{purifier_id}.stl":
             allowed.add(path)
     return allowed
+
+
+def _air_purifiers_input_fingerprint(
+    config: AppConfig,
+    source_geojson: Path,
+    model_library_path: Path,
+    terrain_geometry_path: Path | None,
+    models: dict[str, AirPurifierModel],
+) -> dict[str, JsonValue]:
+    paths = [config.path, source_geojson, model_library_path]
+    paths.extend(model.source_path for model in models.values())
+    if terrain_geometry_path is not None:
+        paths.append(terrain_geometry_path)
+    return lightweight_state_fingerprint(
+        {
+            "stage": "air-purifiers",
+            "crs": config.region.crs,
+            "center": [config.region.center_lon, config.region.center_lat],
+            "model_library_path": str(model_library_path),
+            "terrain_geometry_path": str(terrain_geometry_path) if terrain_geometry_path else None,
+        },
+        paths,
+    )
+
+
+def _json_counts(counts: dict[str, int]) -> dict[str, JsonValue]:
+    return {name: count for name, count in counts.items()}
 
 
 def _target_dimension(properties: dict[str, Any], key: str, field: str, default: float, model_name: str) -> tuple[float, str]:

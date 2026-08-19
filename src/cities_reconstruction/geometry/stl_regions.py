@@ -114,8 +114,11 @@ def transform_region_mesh(
             z + translation[2],
         )
 
-    transformed = {
-        region: [tuple(transform(point) for point in triangle) for triangle in triangles]  # type: ignore[misc]
+    transformed: RegionMesh = {
+        region: [
+            (transform(triangle[0]), transform(triangle[1]), transform(triangle[2]))
+            for triangle in triangles
+        ]
         for region, triangles in mesh.items()
     }
     if not all(
@@ -147,11 +150,15 @@ def mesh_edge_counts(mesh: RegionMesh) -> dict[tuple[Point3, Point3], int]:
     counts: dict[tuple[Point3, Point3], int] = {}
     for triangles in mesh.values():
         for triangle in triangles:
-            rounded = [tuple(round(value, 9) for value in point) for point in triangle]
+            rounded = tuple(_rounded_point(point) for point in triangle)
             for start, end in ((rounded[0], rounded[1]), (rounded[1], rounded[2]), (rounded[2], rounded[0])):
-                edge = tuple(sorted((start, end)))
+                edge = (start, end) if start <= end else (end, start)
                 counts[edge] = counts.get(edge, 0) + 1
     return counts
+
+
+def _rounded_point(point: Point3) -> Point3:
+    return (round(point[0], 9), round(point[1], 9), round(point[2], 9))
 
 
 def _parse_facet(

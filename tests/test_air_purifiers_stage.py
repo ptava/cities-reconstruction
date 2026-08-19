@@ -3,17 +3,24 @@ from __future__ import annotations
 import json
 import math
 import os
-from pathlib import Path
 import re
+from pathlib import Path
 
 import pytest
 
-from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction import artifacts
+from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.geometry.stl_regions import REGION_NAMES, mesh_bounds, mesh_edge_counts, read_region_stl
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    ArtifactReference,
+    StageOutput,
+    StageStatus,
+    publish_stage_manifest,
+)
 from cities_reconstruction.stages import air_purifiers, shapefiles, trees
 from tests.config_helpers import DEFAULT_SHAPEFILES_BLOCK, ROOT, write_complete_config
-
+from tests.stage_manifest_helpers import publish_test_stage_manifest
 
 PARAMETERS = ROOT / "docs/assets/air_purifier_towers/parameters.json"
 MERCATO_PLAN = (
@@ -101,6 +108,11 @@ def _write_features(config, features: list[dict[str, object]]) -> None:
     path = config.output.root_directory / "01_shapefiles/air_purifiers.geojson"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"type": "FeatureCollection", "features": features}), encoding="utf-8")
+    publish_test_stage_manifest(
+        path.parent,
+        stage="shapefiles",
+        named_artifacts={"air-purifiers": (path, ArtifactKind.HANDOFF)},
+    )
 
 
 def _write_flat_terrain(path: Path, *, extent: float = 10.0, z: float = 2.0) -> None:
@@ -142,6 +154,22 @@ def test_generates_scaled_aggregate_and_per_unit_surfaces(tmp_path: Path) -> Non
     assert all(count == 2 for count in mesh_edge_counts(combined).values())
 
 
+def test_air_purifiers_requires_declared_named_shapefiles_handoff(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _write_features(config, [_feature("AP-X")])
+    stage1_dir = config.output.root_directory / "01_shapefiles"
+    manifest = publish_test_stage_manifest(
+        stage1_dir,
+        stage="shapefiles",
+        named_artifacts={"unrelated": (stage1_dir / "air_purifiers.geojson", ArtifactKind.HANDOFF)},
+    )
+
+    with pytest.raises(ConfigError, match="air-purifiers") as error:
+        air_purifiers.run(config)
+
+    assert str(manifest.manifest_path) in str(error.value)
+
+
 def test_rotation_local_origin_and_terrain_clearance(tmp_path: Path) -> None:
     terrain = tmp_path / "terrain.obj"
     _write_flat_terrain(terrain)
@@ -165,9 +193,13 @@ def test_rotation_local_origin_and_terrain_clearance(tmp_path: Path) -> None:
 def test_z_zero_fallback_and_exact_output_contract(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _write_features(config, [_feature("AP-001")])
+    legacy_manifest = config.output.root_directory / "05_air_purifiers/air_purifier_models_manifest.json"
+    legacy_manifest.parent.mkdir(parents=True)
+    legacy_manifest.write_text('{"legacy": true}', encoding="utf-8")
     result = air_purifiers.run(config)
     assert mesh_bounds(read_region_stl(result.combined_stl_path))[4] == 0.0
-    assert result.manifest_path.name == "air_purifier_models_manifest.json"
+    assert result.manifest_path.name == "manifest.json"
+    assert not legacy_manifest.exists()
     assert result.report_path.name == "air_purifier_models_report.md"
     assert result.preview_path.name == "air_purifier_models_preview.html"
     html = result.preview_path.read_text(encoding="utf-8")
@@ -193,7 +225,12 @@ def test_normalized_provenance_is_retained_without_planning_status_outputs(tmp_p
     assert "planning_status" not in properties
 
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert "statuses" not in manifest["counts"]
+    assert isinstance(result, StageOutput)
+    assert result.to_dict() == manifest
+    assert manifest["schema_version"] == 2
+    assert manifest["stage"] == "air-purifiers"
+    assert manifest["status"] == "completed"
+    assert "statuses" not in manifest["metrics"]
     report = result.report_path.read_text(encoding="utf-8")
     assert "planning status" not in report.lower()
     preview = _preview_payload(result.preview_path)
@@ -256,8 +293,13 @@ crs = "EPSG:4326"
     }
     assert set(result.instance_stl_paths) == {f"AP-{index:03d}" for index in range(1, 8)}
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["resolved_overrides"]["terrain_geometry_path"] is None
-    assert manifest["terrain"] == {
+    assert manifest["metrics"]["purifier_count"] == 7
+    assert manifest["metrics"]["model_counts"] == {
+        "compact_four_side_tower": 1,
+        "compact_octagonal_tower": 6,
+    }
+    assert manifest["details"]["resolved_overrides"]["terrain_geometry_path"] is None
+    assert manifest["details"]["terrain"] == {
         "path": None,
         "status": "z=0 fallback",
         "base_clearance_m": 0.0,
@@ -536,8 +578,16 @@ def test_validates_rotated_footprint_and_stage3_manifest(tmp_path: Path) -> None
     _write_features(config, [_feature("AP-X", width=1.0, depth=1.0, rotation=45)])
     with pytest.raises(ConfigError, match="manifest is missing"):
         air_purifiers.run(config, terrain_geometry_path=terrain)
-    (terrain.parent / "city4cfd_reconstruction_manifest.json").write_text(
-        json.dumps({"stage_status": "completed"}), encoding="utf-8"
+    publish_stage_manifest(
+        stage="city-models",
+        status=StageStatus.COMPLETED,
+        output_directory=terrain.parent,
+        report_path=terrain.parent / "city_models_report.md",
+        preview_path=terrain.parent / "city_models_preview.html",
+        input_state_fingerprint={"fixture": "completed-city-models"},
+        artifacts=(ArtifactReference("terrain", terrain, ArtifactKind.HANDOFF),),
+        metrics={},
+        details={},
     )
     with pytest.raises(ConfigError, match="footprint.*terrain"):
         air_purifiers.run(config, terrain_geometry_path=terrain)
@@ -738,24 +788,20 @@ def test_manifest_is_written_last_and_report_contains_diagnostics(tmp_path: Path
     second = _feature("AP-2", "compact_four_side_tower", lon=11.2559)
     second["properties"]["urban_planning_input_id"] = "second-source"
     _write_features(config, [first, second])
-    writes: list[Path] = []
-    original_json = air_purifiers.atomic_write_json
-    original_text = air_purifiers.atomic_write_text
+    published: list[Path] = []
+    original_publish = air_purifiers.publish_stage_manifest
 
-    def track_json(path: Path, payload: dict[str, object]) -> None:
-        writes.append(path)
-        original_json(path, payload)
+    def observe_publication(**kwargs):
+        assert kwargs["preview_path"].is_file()
+        assert kwargs["report_path"].is_file()
+        published.append(kwargs["output_directory"] / "manifest.json")
+        return original_publish(**kwargs)
 
-    def track_text(path: Path, content: str) -> None:
-        writes.append(path)
-        original_text(path, content)
-
-    monkeypatch.setattr(air_purifiers, "atomic_write_json", track_json)
-    monkeypatch.setattr(air_purifiers, "atomic_write_text", track_text)
+    monkeypatch.setattr(air_purifiers, "publish_stage_manifest", observe_publication)
 
     result = air_purifiers.run(config)
 
-    assert writes[-1] == result.manifest_path
+    assert published == [result.manifest_path]
     report = result.report_path.read_text(encoding="utf-8")
     assert "Counts by model" in report
     assert "Counts by input" in report
@@ -765,6 +811,24 @@ def test_manifest_is_written_last_and_report_contains_diagnostics(tmp_path: Path
     assert "Parameter provenance" in report
     assert "attribute:HEIGHT_M" in report
     assert "default:compact_four_side_tower" in report
+
+
+def test_manifest_lists_purifier_handoffs_and_supporting_placement(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _write_features(config, [_feature("AP-001")])
+
+    result = air_purifiers.run(config)
+
+    artifacts_by_name = {artifact.name: artifact for artifact in result.artifacts}
+    assert artifacts_by_name["combined-surface"].kind is ArtifactKind.HANDOFF
+    assert artifacts_by_name["combined-surface"].path == result.combined_stl_path
+    assert artifacts_by_name["instance-AP-001"].kind is ArtifactKind.HANDOFF
+    assert artifacts_by_name["instance-AP-001"].path == result.instance_stl_paths["AP-001"]
+    assert artifacts_by_name["placements"].kind is ArtifactKind.SUPPORTING
+    assert all(artifact.required is True for artifact in artifacts_by_name.values())
+    assert result.metrics["purifier_count"] == 1
+    assert result.metrics["model_counts"] == {"compact_octagonal_tower": 1}
+    assert result.details["terrain"]["status"] == "z=0 fallback"
 
 
 def test_air_purifier_terrain_errors_use_stage_specific_wording(tmp_path: Path) -> None:

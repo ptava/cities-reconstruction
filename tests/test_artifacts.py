@@ -94,12 +94,13 @@ def test_shapefiles_stage_publishes_stable_category_and_reference_artifact_paths
     result = shapefiles.run(load_config(config_path), overpass_json_path=cached)
 
     expected = tmp_path / "outputs" / "01_shapefiles" / "air_purifiers.geojson"
+    artifacts = {artifact["name"]: artifact for artifact in result.to_dict()["artifacts"]}
     assert result.air_purifiers_path == expected
-    assert result.to_dict()["air_purifiers_path"] == str(expected)
+    assert artifacts["air-purifiers"]["path"] == str(expected)
     assert expected.exists()
     assert result.urban_planning_path == expected.with_name("urban_planning.geojson")
-    assert result.to_dict()["urban_planning_path"] == str(expected.with_name("urban_planning.geojson"))
+    assert artifacts["urban-planning"]["path"] == str(expected.with_name("urban_planning.geojson"))
     assert json.loads(result.urban_planning_path.read_text(encoding="utf-8"))["features"] == []
     assert result.category_paths["trees"] == expected.with_name("trees.geojson")
     assert result.category_paths["roads"] == expected.with_name("roads.geojson")
-    assert result.to_dict()["category_paths"]["trees"] == str(expected.with_name("trees.geojson"))
+    assert artifacts["category-trees"]["path"] == str(expected.with_name("trees.geojson"))

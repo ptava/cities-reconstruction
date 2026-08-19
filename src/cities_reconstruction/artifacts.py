@@ -7,15 +7,12 @@ import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 from uuid import uuid4
 
-from cities_reconstruction import __version__
 from cities_reconstruction.config import ConfigError
 
-MANIFEST_SCHEMA_VERSION = 1
 FINGERPRINT_KIND = "sha256-canonical-path-size-mtime-ns"
 
 
@@ -94,13 +91,4 @@ def lightweight_state_fingerprint(payload: dict[str, Any], paths: list[Path]) ->
         "value": hashlib.sha256(canonical).hexdigest(),
         "path_count": len(path_state),
         "limitation": "Lightweight change detector; input file contents are not hashed.",
-    }
-
-
-def manifest_provenance(fingerprint: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
-        "application_version": __version__,
-        "completed_at_utc": datetime.now(UTC).isoformat(),
-        "input_state_fingerprint": fingerprint,
     }

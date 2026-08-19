@@ -42,6 +42,7 @@ class StageSpec:
     output_directory: str
     planner: StagePlanner
     executable: bool
+    manifest_filename: str | None = None
     hard_dependencies: tuple[str, ...] = ()
     inputs: tuple[StageInputSpec, ...] = ()
 
@@ -62,6 +63,7 @@ STAGE_SPECS = (
         output_directory="01_shapefiles",
         planner=shapefiles.plan,
         executable=True,
+        manifest_filename="manifest.json",
         inputs=(
             StageInputSpec("feature-data", required=True, override="--overpass-json"),
         ),
@@ -73,6 +75,7 @@ STAGE_SPECS = (
         output_directory="02_visual_enrichment",
         planner=visual_enrichment.plan,
         executable=True,
+        manifest_filename="manifest.json",
         hard_dependencies=("shapefiles",),
         inputs=(
             StageInputSpec("stage-1-features", required=True, default_producer="shapefiles"),
@@ -87,6 +90,7 @@ STAGE_SPECS = (
         output_directory="02_point_cloud",
         planner=point_cloud.plan,
         executable=True,
+        manifest_filename="manifest.json",
         inputs=(
             StageInputSpec("dtm-directory", required=True, override="inputs.dtm_directory"),
             StageInputSpec("dsm-directory", required=True, override="inputs.dsm_directory"),
@@ -115,6 +119,7 @@ STAGE_SPECS = (
         output_directory="03_city_models",
         planner=city_models.plan,
         executable=True,
+        manifest_filename="manifest.json",
         hard_dependencies=("shapefiles", "point-cloud"),
         inputs=(
             StageInputSpec("stage-1-surfaces", required=True, default_producer="shapefiles"),
@@ -128,6 +133,7 @@ STAGE_SPECS = (
         output_directory="04_trees",
         planner=trees.plan,
         executable=True,
+        manifest_filename="manifest.json",
         hard_dependencies=("shapefiles",),
         inputs=(
             StageInputSpec("tree-features", required=True, default_producer="shapefiles"),
@@ -141,6 +147,7 @@ STAGE_SPECS = (
         output_directory="05_air_purifiers",
         planner=air_purifiers.plan,
         executable=True,
+        manifest_filename="manifest.json",
         hard_dependencies=("shapefiles",),
         inputs=(
             StageInputSpec("purifier-features", required=True, default_producer="shapefiles"),
@@ -155,6 +162,7 @@ STAGE_SPECS = (
         output_directory="05_openfoam_case",
         planner=openfoam.plan,
         executable=False,
+        manifest_filename=None,
         hard_dependencies=("city-models", "trees", "air-purifiers"),
     ),
 )

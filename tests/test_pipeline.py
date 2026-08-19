@@ -43,6 +43,8 @@ def test_stage_registry_defines_order_and_executability() -> None:
     )
     assert EXECUTABLE_STAGE_NAMES == STAGE_NAMES[:-1]
     assert tuple(spec.order for spec in STAGE_SPECS) == tuple(range(1, 8))
+    assert all(spec.manifest_filename == "manifest.json" for spec in STAGE_SPECS if spec.executable)
+    assert STAGE_BY_NAME["openfoam"].manifest_filename is None
 
 
 def test_point_cloud_registry_uses_shapefiles_as_default_not_dependency() -> None:

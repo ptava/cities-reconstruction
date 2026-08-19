@@ -2,27 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from html import escape
-import os
 import json
 import math
-from statistics import median
+import os
+from collections.abc import Iterable, Sequence
+from dataclasses import asdict, dataclass
+from html import escape
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 from shapely.geometry import MultiPolygon, Point, Polygon, mapping, shape
 from shapely.ops import triangulate
 from shapely.validation import make_valid
 
-from cities_reconstruction.artifacts import (
-    atomic_text_writer,
-    atomic_write_json,
-    atomic_write_text,
-    lightweight_state_fingerprint,
-    manifest_provenance,
-    stage_output_lock,
-)
 from cities_reconstruction.adapters.city4cfd import (
     City4CFDExecutionRequest,
     City4CFDExecutionResult,
@@ -30,9 +23,26 @@ from cities_reconstruction.adapters.city4cfd import (
     SubprocessCity4CFDExecutor,
     render_handoff_script,
 )
+from cities_reconstruction.artifacts import (
+    atomic_text_writer,
+    atomic_write_json,
+    atomic_write_text,
+    lightweight_state_fingerprint,
+    stage_output_lock,
+)
 from cities_reconstruction.config import AppConfig, ConfigError
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    ArtifactReference,
+    JsonValue,
+    StageManifest,
+    StageStatus,
+    invalidate_stage_manifests,
+    publish_stage_manifest,
+    require_completed_manifest,
+    require_manifest_artifact,
+)
 from cities_reconstruction.stage_result import StageResult
-
 
 DEFAULT_BUILDING_HEIGHT_M = 9.0
 DEFAULT_ROOF_RAISE_M = 1.5
@@ -53,9 +63,8 @@ SURFACE_LAYER_PREVIEW_COLORS = (
 
 @dataclass(frozen=True)
 class CityModelsStageOutput:
-    output_directory: Path
+    manifest: StageManifest
     city4cfd_config_path: Path
-    manifest_path: Path
     footprint_diagnostics_path: Path
     run_script_path: Path
     surfaces_directory: Path
@@ -63,42 +72,52 @@ class CityModelsStageOutput:
     terrain_mesh_path: Path
     combined_terrain_mesh_path: Path
     surface_mesh_paths: dict[str, Path]
-    preview_path: Path
-    report_path: Path
     stdout_log_path: Path
     stderr_log_path: Path
-    stage_status: str
     city4cfd_status: str
     city4cfd_backend: str | None
     city4cfd_return_code: int | None
     building_count: int
     alignment_status: str
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "output_directory": str(self.output_directory),
-            "city4cfd_config_path": str(self.city4cfd_config_path),
-            "manifest_path": str(self.manifest_path),
-            "footprint_diagnostics_path": str(self.footprint_diagnostics_path),
-            "run_script_path": str(self.run_script_path),
-            "surfaces_directory": str(self.surfaces_directory),
-            "building_mesh_path": str(self.building_mesh_path),
-            "terrain_mesh_path": str(self.terrain_mesh_path),
-            "combined_terrain_mesh_path": str(self.combined_terrain_mesh_path),
-            "surface_mesh_paths": {
-                category: str(path) for category, path in self.surface_mesh_paths.items()
-            },
-            "preview_path": str(self.preview_path),
-            "report_path": str(self.report_path),
-            "stdout_log_path": str(self.stdout_log_path),
-            "stderr_log_path": str(self.stderr_log_path),
-            "stage_status": self.stage_status,
-            "city4cfd_status": self.city4cfd_status,
-            "city4cfd_backend": self.city4cfd_backend,
-            "city4cfd_return_code": self.city4cfd_return_code,
-            "building_count": self.building_count,
-            "alignment_status": self.alignment_status,
-        }
+    @property
+    def stage(self) -> str:
+        return self.manifest.stage
+
+    @property
+    def status(self) -> StageStatus:
+        return self.manifest.status
+
+    @property
+    def output_directory(self) -> Path:
+        return self.manifest.output_directory
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.manifest.manifest_path
+
+    @property
+    def report_path(self) -> Path:
+        return self.manifest.report_path
+
+    @property
+    def preview_path(self) -> Path:
+        return self.manifest.preview_path
+
+    @property
+    def artifacts(self) -> tuple[ArtifactReference, ...]:
+        return self.manifest.artifacts
+
+    @property
+    def metrics(self) -> dict[str, JsonValue]:
+        return self.manifest.metrics
+
+    @property
+    def details(self) -> dict[str, JsonValue]:
+        return self.manifest.details
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return self.manifest.to_dict()
 
 
 def plan(config: AppConfig) -> StageResult:
@@ -125,19 +144,26 @@ def run(
 
     output_dir = config.output.root_directory / "03_city_models"
     with stage_output_lock(output_dir, "city-models"):
-        (output_dir / "city4cfd_reconstruction_manifest.json").unlink(missing_ok=True)
+        invalidate_stage_manifests(
+            output_dir,
+            legacy_names=("city4cfd_reconstruction_manifest.json",),
+        )
         (output_dir / "city4cfd_stdout.log").unlink(missing_ok=True)
         (output_dir / "city4cfd_stderr.log").unlink(missing_ok=True)
         return _run_locked(config, executor or SubprocessCity4CFDExecutor())
 
 
 def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStageOutput:
-
-    point_manifest_path = config.output.root_directory / "02_point_cloud" / "city4cfd_point_cloud_manifest.json"
-    if not point_manifest_path.exists():
-        raise ConfigError("missing point-cloud manifest. Run `point-cloud` before `city-models`.")
-    point_manifest = _read_json(point_manifest_path)
-    diagnostics_path = Path(str(point_manifest["alignment_diagnostics"]))
+    point_manifest_path = config.output.root_directory / "02_point_cloud" / "manifest.json"
+    point_manifest = require_completed_manifest(
+        point_manifest_path,
+        expected_stage="point-cloud",
+    )
+    diagnostics_path = require_manifest_artifact(
+        point_manifest,
+        name="alignment-diagnostics",
+        kind=ArtifactKind.DIAGNOSTIC,
+    ).path
     diagnostics = _read_json(diagnostics_path)
     alignment_status = str(diagnostics.get("alignment_status", "unknown"))
     if alignment_status == "failed":
@@ -146,12 +172,27 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
             f"{diagnostics_path} before running City4CFD reconstruction"
         )
 
-    city4cfd_inputs = point_manifest.get("city4cfd_inputs")
-    if not isinstance(city4cfd_inputs, dict):
-        raise ConfigError(f"invalid point-cloud manifest: {point_manifest_path}")
-    footprint_path = Path(str(city4cfd_inputs["building_footprints"]))
-    ground_point_cloud_path = Path(str(city4cfd_inputs["ground_point_cloud"]))
-    building_point_cloud_path = Path(str(city4cfd_inputs["building_point_cloud"]))
+    footprint_path = require_manifest_artifact(
+        point_manifest,
+        name="projected-building-footprints",
+        kind=ArtifactKind.HANDOFF,
+    ).path
+    ground_point_cloud_path = require_manifest_artifact(
+        point_manifest,
+        name="ground-points",
+        kind=ArtifactKind.HANDOFF,
+    ).path
+    building_point_cloud_path = require_manifest_artifact(
+        point_manifest,
+        name="building-points",
+        kind=ArtifactKind.HANDOFF,
+    ).path
+    city4cfd_inputs = {
+        "building_footprints": str(footprint_path),
+        "ground_point_cloud": str(ground_point_cloud_path),
+        "building_point_cloud": str(building_point_cloud_path),
+        "crs": point_manifest.details.get("crs", config.region.crs),
+    }
     footprints = _read_feature_collection(footprint_path)
     ground_elevation_index = _point_cloud_cell_stats(ground_point_cloud_path, prefer="min")
     building_roof_index = _point_cloud_cell_stats(building_point_cloud_path, prefer="max")
@@ -163,7 +204,7 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
     surface_layers_dir.mkdir(parents=True, exist_ok=True)
 
     city4cfd_config_path = output_dir / "city4cfd_config.json"
-    manifest_path = output_dir / "city4cfd_reconstruction_manifest.json"
+    manifest_path = output_dir / "manifest.json"
     footprint_diagnostics_path = output_dir / "footprint_diagnostics.json"
     run_script_path = output_dir / "run_city4cfd.sh"
     preview_path = output_dir / "city_models_preview.html"
@@ -178,6 +219,7 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
     expected_mesh_filenames = _expected_city4cfd_mesh_filenames(
         output_name,
         output_format,
+        config.city_models.output_separately,
         stage1_surface_layers,
     )
     _remove_known_city4cfd_outputs(output_dir, expected_mesh_filenames)
@@ -219,26 +261,60 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
         footprints,
         ground_elevation_index,
     )
-    building_mesh_path = _find_city4cfd_mesh_path(output_dir, f"{output_name}_Buildings.{output_format}")
-    terrain_mesh_path = _find_city4cfd_mesh_path(output_dir, f"{output_name}_Terrain.{output_format}")
-    surface_mesh_paths = {
-        layer["category"]: _find_city4cfd_mesh_path(
+    uses_separate_mesh_outputs = _uses_separate_city4cfd_mesh_outputs(
+        output_format,
+        config.city_models.output_separately,
+    )
+    building_mesh_path = (
+        _find_city4cfd_mesh_path(output_dir, f"{output_name}_Buildings.{output_format}")
+        if uses_separate_mesh_outputs
+        else city4cfd_output_dir / f"{output_name}_Buildings.{output_format}"
+    )
+    terrain_mesh_path = (
+        _find_city4cfd_mesh_path(output_dir, f"{output_name}_Terrain.{output_format}")
+        if uses_separate_mesh_outputs
+        else city4cfd_output_dir / f"{output_name}_Terrain.{output_format}"
+    )
+    city_mesh_path = (
+        None
+        if uses_separate_mesh_outputs
+        else _find_city4cfd_mesh_path(
             output_dir,
-            f"{output_name}_{layer['layer_name']}.{output_format}",
+            _aggregate_city4cfd_mesh_filename(output_name, output_format),
         )
-        for layer in stage1_surface_layers
-    }
+    )
+    surface_mesh_paths = (
+        {
+            layer["category"]: _find_city4cfd_mesh_path(
+                output_dir,
+                f"{output_name}_{layer['layer_name']}.{output_format}",
+            )
+            for layer in stage1_surface_layers
+        }
+        if uses_separate_mesh_outputs
+        else {}
+    )
+    required_core_mesh_paths = (
+        (building_mesh_path, terrain_mesh_path)
+        if uses_separate_mesh_outputs
+        else (city_mesh_path,)
+    )
+    _validate_successful_city4cfd_geometry(execution, required_core_mesh_paths)
     combined_terrain_mesh_path = city4cfd_output_dir / f"{output_name}_Terrain_Combined.obj"
-    _write_combined_terrain_obj(
-        combined_terrain_mesh_path,
-        terrain_mesh_path,
-        surface_mesh_paths,
-    )
-    generated_mesh_scene = _city4cfd_mesh_scene_data(
-        building_mesh_path,
-        terrain_mesh_path,
-        surface_mesh_paths,
-    )
+    if uses_separate_mesh_outputs:
+        _write_combined_terrain_obj(
+            combined_terrain_mesh_path,
+            terrain_mesh_path,
+            surface_mesh_paths,
+        )
+        generated_mesh_scene = _city4cfd_mesh_scene_data(
+            building_mesh_path,
+            terrain_mesh_path,
+            surface_mesh_paths,
+        )
+    else:
+        combined_terrain_mesh_path.unlink(missing_ok=True)
+        generated_mesh_scene = _stl_scene_data([])
     if not generated_mesh_scene.get("triangles"):
         generated_mesh_scene = _stl_scene_data([*building_triangles, *terrain_triangles])
     fingerprint = _city_models_input_fingerprint(
@@ -250,29 +326,6 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
         building_point_cloud_path,
         stage1_surface_layers,
         execution,
-    )
-    manifest = _build_manifest(
-        config=config,
-        point_manifest_path=point_manifest_path,
-        diagnostics_path=diagnostics_path,
-        city4cfd_config_path=city4cfd_config_path,
-        footprint_diagnostics_path=footprint_diagnostics_path,
-        run_script_path=run_script_path,
-        footprint_path=footprint_path,
-        building_stl_path=building_stl_path,
-        terrain_stl_path=terrain_stl_path,
-        building_mesh_path=building_mesh_path,
-        terrain_mesh_path=terrain_mesh_path,
-        combined_terrain_mesh_path=combined_terrain_mesh_path,
-        surface_mesh_paths=surface_mesh_paths,
-        stage1_surface_layers=stage1_surface_layers,
-        diagnostics=diagnostics,
-        footprint_diagnostics=footprint_diagnostics,
-        building_count=len(footprints),
-        execution=execution,
-        stdout_log_path=stdout_log_path,
-        stderr_log_path=stderr_log_path,
-        fingerprint=fingerprint,
     )
     atomic_write_text(
         preview_path,
@@ -310,12 +363,131 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
             stderr_log_path=stderr_log_path,
         ),
     )
-    atomic_write_json(manifest_path, manifest)
+    surface_layer_details: list[JsonValue] = [
+        {
+            "category": layer["category"],
+            "layer_name": layer["layer_name"],
+            "source_path": layer["source_path"],
+            "layer_path": layer["layer_path"],
+            "config_path": layer["config_path"],
+            "feature_count": layer["feature_count"],
+            "mesh_path": (
+                str(surface_mesh_paths[layer["category"]])
+                if layer["category"] in surface_mesh_paths
+                else None
+            ),
+            "mesh_exists": (
+                surface_mesh_paths[layer["category"]].exists()
+                if layer["category"] in surface_mesh_paths
+                else False
+            ),
+        }
+        for layer in stage1_surface_layers
+    ]
+    artifacts = [
+        ArtifactReference("city4cfd-config", city4cfd_config_path, ArtifactKind.SUPPORTING),
+        ArtifactReference(
+            "footprint-diagnostics",
+            footprint_diagnostics_path,
+            ArtifactKind.DIAGNOSTIC,
+        ),
+        ArtifactReference("run-script", run_script_path, ArtifactKind.LOG),
+        ArtifactReference("building-preview-surface", building_stl_path, ArtifactKind.PREVIEW),
+        ArtifactReference("terrain-preview-surface", terrain_stl_path, ArtifactKind.PREVIEW),
+        *(
+            (
+                ArtifactReference(
+                    "building-mesh",
+                    building_mesh_path,
+                    ArtifactKind.HANDOFF,
+                    required=execution.succeeded,
+                ),
+                ArtifactReference(
+                    "terrain-mesh",
+                    terrain_mesh_path,
+                    ArtifactKind.HANDOFF,
+                    required=execution.succeeded,
+                ),
+                ArtifactReference(
+                    "combined-terrain-mesh",
+                    combined_terrain_mesh_path,
+                    ArtifactKind.HANDOFF,
+                    required=execution.succeeded and combined_terrain_mesh_path.is_file(),
+                ),
+                *(
+                    ArtifactReference(
+                        f"surface-mesh-{category}",
+                        path,
+                        ArtifactKind.HANDOFF,
+                        required=False,
+                    )
+                    for category, path in sorted(surface_mesh_paths.items())
+                ),
+            )
+            if uses_separate_mesh_outputs and execution.status != "external_failed"
+            else ()
+        ),
+        *(
+            (
+                ArtifactReference(
+                    "city-mesh",
+                    city_mesh_path,
+                    ArtifactKind.HANDOFF,
+                    required=execution.succeeded,
+                ),
+            )
+            if city_mesh_path is not None and execution.status != "external_failed"
+            else ()
+        ),
+        ArtifactReference("stdout-log", stdout_log_path, ArtifactKind.LOG),
+        ArtifactReference("stderr-log", stderr_log_path, ArtifactKind.LOG),
+        ArtifactReference("report", report_path, ArtifactKind.REPORT),
+        ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
+    ]
+    manifest = publish_stage_manifest(
+        stage="city-models",
+        status=_manifest_status(execution),
+        output_directory=output_dir,
+        report_path=report_path,
+        preview_path=preview_path,
+        input_state_fingerprint=fingerprint,
+        artifacts=tuple(artifacts),
+        metrics={
+            "building_count": len(footprints),
+            "alignment_status": alignment_status,
+            "footprint_overlap_status": footprint_diagnostics["overlap_status"],
+        },
+        details={
+            "region": config.region.name,
+            "crs": config.region.crs,
+            "point_cloud_manifest": str(point_manifest_path),
+            "required_external_tool": "City4CFD with OpenFOAM-compatible dependencies",
+            "surface_layers": surface_layer_details,
+            "city4cfd_generated_surfaces": {
+                "city": str(city_mesh_path) if city_mesh_path is not None else None,
+                "buildings": str(building_mesh_path) if uses_separate_mesh_outputs else None,
+                "terrain": str(terrain_mesh_path) if uses_separate_mesh_outputs else None,
+                "combined_terrain": str(combined_terrain_mesh_path) if uses_separate_mesh_outputs else None,
+                "surface_layers": {
+                    category: str(path) for category, path in surface_mesh_paths.items()
+                },
+            },
+            "city4cfd_execution": {
+                "status": execution.status,
+                "backend": execution.backend,
+                "argv": list(execution.argv),
+                "return_code": execution.return_code,
+                "stdout_log": str(stdout_log_path),
+                "stderr_log": str(stderr_log_path),
+                "stdout_truncated": execution.stdout_truncated,
+                "stderr_truncated": execution.stderr_truncated,
+            },
+        },
+    )
 
     return CityModelsStageOutput(
-        output_directory=output_dir,
+        manifest=manifest,
         city4cfd_config_path=city4cfd_config_path,
-        manifest_path=manifest_path,
         footprint_diagnostics_path=footprint_diagnostics_path,
         run_script_path=run_script_path,
         surfaces_directory=surfaces_dir,
@@ -323,11 +495,8 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
         terrain_mesh_path=terrain_mesh_path,
         combined_terrain_mesh_path=combined_terrain_mesh_path,
         surface_mesh_paths=surface_mesh_paths,
-        preview_path=preview_path,
-        report_path=report_path,
         stdout_log_path=stdout_log_path,
         stderr_log_path=stderr_log_path,
-        stage_status=_stage_status(execution),
         city4cfd_status=execution.status,
         city4cfd_backend=execution.backend,
         city4cfd_return_code=execution.return_code,
@@ -411,9 +580,15 @@ def _prepare_stage1_surface_layers(
     output_dir: Path,
 ) -> list[dict[str, Any]]:
     stage1_dir = config.output.root_directory / "01_shapefiles"
-    summary_path = stage1_dir / "summary.json"
-    if not summary_path.exists():
-        raise ConfigError("missing stage-1 summary. Run `shapefiles` before `city-models`.")
+    stage1_manifest = require_completed_manifest(
+        stage1_dir / "manifest.json",
+        expected_stage="shapefiles",
+    )
+    summary_path = require_manifest_artifact(
+        stage1_manifest,
+        name="summary",
+        kind=ArtifactKind.SUPPORTING,
+    ).path
     summary = _read_json(summary_path)
     feature_counts = summary.get("feature_counts")
     if not isinstance(feature_counts, dict):
@@ -426,9 +601,11 @@ def _prepare_stage1_surface_layers(
     for category in by_category:
         if category in STAGE1_CATEGORY_EXCLUSIONS:
             continue
-        category_path = stage1_dir / f"{category}.geojson"
-        if not category_path.exists():
-            raise ConfigError(f"missing stage-1 category output: {category_path}")
+        category_path = require_manifest_artifact(
+            stage1_manifest,
+            name=f"category-{category.replace('_', '-')}",
+            kind=ArtifactKind.HANDOFF,
+        ).path
         source_features = _read_feature_collection(category_path)
         if not source_features:
             continue
@@ -566,14 +743,45 @@ def _remove_known_city4cfd_outputs(output_dir: Path, filenames: list[str]) -> No
 def _expected_city4cfd_mesh_filenames(
     output_name: str,
     output_format: str,
+    output_separately: bool,
     stage1_surface_layers: list[dict[str, Any]],
 ) -> list[str]:
-    return [
+    del output_separately
+    return list(dict.fromkeys([
+        _aggregate_city4cfd_mesh_filename(output_name, output_format),
         f"{output_name}_Buildings.{output_format}",
         f"{output_name}_Terrain.{output_format}",
         *(f"{output_name}_{layer['layer_name']}.{output_format}" for layer in stage1_surface_layers),
         f"{output_name}_Terrain_Combined.obj",
+    ]))
+
+
+def _uses_separate_city4cfd_mesh_outputs(output_format: str, output_separately: bool) -> bool:
+    return output_separately and output_format != "cityjson"
+
+
+def _aggregate_city4cfd_mesh_filename(output_name: str, output_format: str) -> str:
+    extension = "city.json" if output_format == "cityjson" else output_format
+    return f"{output_name}.{extension}"
+
+
+def _validate_successful_city4cfd_geometry(
+    execution: City4CFDExecutionResult,
+    required_paths: tuple[Path | None, ...],
+) -> None:
+    if not execution.succeeded:
+        return
+    missing = [
+        path
+        for path in required_paths
+        if path is None or not path.is_file() or path.stat().st_size == 0
     ]
+    if missing:
+        rendered_paths = ", ".join("<unresolved>" if path is None else str(path) for path in missing)
+        raise ConfigError(
+            f"City4CFD {execution.status} reported success but required generated geometry "
+            f"is missing or empty: {rendered_paths}"
+        )
 
 
 def _city4cfd_output_dir(execution_dir: Path) -> Path:
@@ -595,85 +803,10 @@ def _write_geojson(path: Path, features: list[dict[str, Any]], crs: str) -> None
     )
 
 
-def _build_manifest(
-    config: AppConfig,
-    point_manifest_path: Path,
-    diagnostics_path: Path,
-    city4cfd_config_path: Path,
-    footprint_diagnostics_path: Path,
-    run_script_path: Path,
-    footprint_path: Path,
-    building_stl_path: Path,
-    terrain_stl_path: Path,
-    building_mesh_path: Path,
-    terrain_mesh_path: Path,
-    combined_terrain_mesh_path: Path,
-    surface_mesh_paths: dict[str, Path],
-    stage1_surface_layers: list[dict[str, Any]],
-    diagnostics: dict[str, Any],
-    footprint_diagnostics: dict[str, Any],
-    building_count: int,
-    execution: City4CFDExecutionResult,
-    stdout_log_path: Path,
-    stderr_log_path: Path,
-    fingerprint: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "stage": "city-models",
-        **manifest_provenance(fingerprint),
-        "region": config.region.name,
-        "crs": config.region.crs,
-        "city4cfd_config": str(city4cfd_config_path),
-        "run_script": str(run_script_path),
-        "point_cloud_manifest": str(point_manifest_path),
-        "alignment_diagnostics": str(diagnostics_path),
-        "footprint_diagnostics": str(footprint_diagnostics_path),
-        "alignment_status": diagnostics.get("alignment_status", "unknown"),
-        "footprint_overlap_status": footprint_diagnostics["overlap_status"],
-        "building_footprints": str(footprint_path),
-        "building_count": building_count,
-        "offline_preview_surfaces": {
-            "buildings": str(building_stl_path),
-            "terrain": str(terrain_stl_path),
-        },
-        "surface_layers": [
-            {
-                "category": layer["category"],
-                "layer_name": layer["layer_name"],
-                "source_path": layer["source_path"],
-                "layer_path": layer["layer_path"],
-                "config_path": layer["config_path"],
-                "feature_count": layer["feature_count"],
-                "mesh_path": str(surface_mesh_paths[layer["category"]]),
-                "mesh_exists": surface_mesh_paths[layer["category"]].exists(),
-            }
-            for layer in stage1_surface_layers
-        ],
-        "city4cfd_generated_surfaces": {
-            "buildings": str(building_mesh_path),
-            "terrain": str(terrain_mesh_path),
-            "combined_terrain": str(combined_terrain_mesh_path),
-            "surface_layers": {
-                category: str(path) for category, path in surface_mesh_paths.items()
-            },
-        },
-        "required_external_tool": "City4CFD with OpenFOAM-compatible dependencies",
-        "stage_status": _stage_status(execution),
-        "city4cfd_execution": {
-            "status": execution.status,
-            "backend": execution.backend,
-            "argv": list(execution.argv),
-            "return_code": execution.return_code,
-            "stdout_log": str(stdout_log_path),
-            "stderr_log": str(stderr_log_path),
-            "stdout_truncated": execution.stdout_truncated,
-            "stderr_truncated": execution.stderr_truncated,
-        },
-    }
-
-
-def _stage_status(execution: City4CFDExecutionResult) -> str:
-    return "failed_external_execution" if execution.status == "external_failed" else "completed"
+def _manifest_status(execution: City4CFDExecutionResult) -> StageStatus:
+    if execution.status == "external_failed":
+        return StageStatus.FAILED_EXTERNAL_EXECUTION
+    return StageStatus.COMPLETED
 
 
 def _city_models_input_fingerprint(
@@ -867,7 +1000,11 @@ def _write_building_preview_stl(
             for ring in _polygon_rings(polygon):
                 base_points = [(x, y, base_z) for x, y in ring[:-1]]
                 top_points = [(x, y, top_z) for x, y in ring[:-1]]
-                for start, end in zip(range(len(base_points)), range(1, len(base_points) + 1)):
+                for start, end in zip(
+                    range(len(base_points)),
+                    range(1, len(base_points) + 1),
+                    strict=True,
+                ):
                     next_index = end % len(base_points)
                     triangles.extend(
                         _quad_triangles(
@@ -883,7 +1020,11 @@ def _write_building_preview_stl(
             if roof_raise > 0.0:
                 for ring in _polygon_rings(polygon):
                     top_points = [(x, y, top_z) for x, y in ring[:-1]]
-                    for start, end in zip(range(len(top_points)), range(1, len(top_points) + 1)):
+                    for start, end in zip(
+                        range(len(top_points)),
+                        range(1, len(top_points) + 1),
+                        strict=True,
+                    ):
                         triangles.append((f"building_{index}_lod22_roof", top_points[start], top_points[end % len(top_points)], roof_peak))
     _write_stl(path, "buildings_lod22_preview", triangles)
     return triangles
@@ -1062,7 +1203,7 @@ def _outer_rings(geometry: dict[str, Any]) -> list[list[tuple[float, float]]]:
     return [_ring_xy(polygon[0]) for polygon in geometry["coordinates"] if polygon]
 
 
-def _ring_xy(ring: list[list[float]]) -> list[tuple[float, float]]:
+def _ring_xy(ring: Iterable[Sequence[float]]) -> list[tuple[float, float]]:
     return [(float(point[0]), float(point[1])) for point in ring]
 
 
@@ -1616,7 +1757,7 @@ The stage-1 surface categories are projected from EPSG:4326 into `{config.region
 
 This stage prepares the City4CFD inputs from the stage-03 TOML settings, checks whether `city4cfd` is available, and runs it directly or through Docker when needed. The generated script remains available as a reproducible fallback for environments where the tool is installed later.
 
-- Stage status: `{_stage_status(execution)}`
+- Contract status: `{_manifest_status(execution)}`
 - External execution status: `{execution.status}`
 - Backend: `{execution.backend or "none"}`
 - Return code: `{execution.return_code if execution.return_code is not None else "not run"}`
@@ -1640,6 +1781,8 @@ def _render_surface_layer_report(
 ) -> str:
     if not stage1_surface_layers:
         return "- No stage-1 surface layers were imported."
+    if not surface_mesh_paths:
+        return "- Surface layers were imported into the configured aggregate City4CFD output."
     lines = [
         f"- `{layer['category']}` -> `{layer['layer_path']}` as `SurfaceLayer` with `layer_name={layer['layer_name']}` ({layer['feature_count']} features); generated mesh: `{surface_mesh_paths[layer['category']]}` ({'present' if surface_mesh_paths[layer['category']].exists() else 'not present'})"
         for layer in stage1_surface_layers
@@ -1912,6 +2055,6 @@ def _read_obj_triangles(
             if len(indices) < 3:
                 continue
             anchor = vertices[indices[0]]
-            for left, right in zip(indices[1:], indices[2:]):
+            for left, right in zip(indices[1:], indices[2:], strict=False):
                 triangles.append((kind, anchor, vertices[left], vertices[right]))
     return triangles

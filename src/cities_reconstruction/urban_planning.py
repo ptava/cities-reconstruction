@@ -126,7 +126,8 @@ def _normalize_feature(
     if kind not in KINDS:
         raise ConfigError(f"{context} has unknown kind '{kind}'; expected one of: {', '.join(sorted(KINDS))}")
     model = _required_text(properties, "model", context)
-    if model_names[kind] is not None and model not in model_names[kind]:
+    allowed_models = model_names[kind]
+    if allowed_models is not None and model not in allowed_models:
         raise ConfigError(f"{context} has unknown model '{model}' for kind '{kind}'")
     _validate_modelling_properties(properties, kind, context)
 

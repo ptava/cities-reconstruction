@@ -8,13 +8,13 @@ GIS stack is introduced.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from html import escape
 import json
 import math
-from pathlib import Path
 import struct
 import time
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
@@ -22,15 +22,24 @@ from shapely.geometry import MultiPolygon, Polygon, mapping
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 
+from cities_reconstruction.artifacts import lightweight_state_fingerprint
 from cities_reconstruction.config import (
     AppConfig,
     ConfigError,
     ImagerySourceConfig,
     SupplementalShapefileConfig,
 )
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    ArtifactReference,
+    JsonValue,
+    StageManifest,
+    StageStatus,
+    invalidate_stage_manifests,
+    publish_stage_manifest,
+)
 from cities_reconstruction.stage_result import StageResult
 from cities_reconstruction.urban_planning import load_inputs as load_urban_planning_inputs
-
 
 EARTH_RADIUS_M = 6_371_000.0
 ROI_FILL_SEGMENTS = 256
@@ -134,7 +143,7 @@ FEATURE_LIKE_INVENTORY_KEYS = frozenset(
 
 @dataclass(frozen=True)
 class ShapefilesStageOutput:
-    output_directory: Path
+    manifest: StageManifest
     tag_inventory_query_path: Path
     tag_inventory_raw_path: Path
     tag_inventory_path: Path
@@ -150,43 +159,55 @@ class ShapefilesStageOutput:
     imagery_diagnostics_path: Path
     imagery_overlay_path: Path
     summary_path: Path
-    report_path: Path
-    preview_path: Path
     source: str
     raw_element_count: int
     accepted_feature_count: int
     skipped_feature_count: int
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "output_directory": str(self.output_directory),
-            "tag_inventory_query_path": str(self.tag_inventory_query_path),
-            "tag_inventory_raw_path": str(self.tag_inventory_raw_path),
-            "tag_inventory_path": str(self.tag_inventory_path),
-            "query_path": str(self.query_path),
-            "raw_overpass_path": str(self.raw_overpass_path),
-            "all_features_path": str(self.all_features_path),
-            "urban_planning_path": str(self.urban_planning_path),
-            "air_purifiers_path": str(self.air_purifiers_path),
-            "category_paths": {key: str(path) for key, path in self.category_paths.items()},
-            "region_paths": {key: str(path) for key, path in self.region_paths.items()},
-            "diagnostics_path": str(self.diagnostics_path),
-            "diagnostics_geojson_path": str(self.diagnostics_geojson_path),
-            "imagery_diagnostics_path": str(self.imagery_diagnostics_path),
-            "imagery_overlay_path": str(self.imagery_overlay_path),
-            "summary_path": str(self.summary_path),
-            "report_path": str(self.report_path),
-            "preview_path": str(self.preview_path),
-            "source": self.source,
-            "raw_element_count": self.raw_element_count,
-            "accepted_feature_count": self.accepted_feature_count,
-            "skipped_feature_count": self.skipped_feature_count,
-        }
+    @property
+    def stage(self) -> str:
+        return self.manifest.stage
+
+    @property
+    def status(self) -> StageStatus:
+        return self.manifest.status
+
+    @property
+    def output_directory(self) -> Path:
+        return self.manifest.output_directory
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.manifest.manifest_path
+
+    @property
+    def report_path(self) -> Path:
+        return self.manifest.report_path
+
+    @property
+    def preview_path(self) -> Path:
+        return self.manifest.preview_path
+
+    @property
+    def artifacts(self) -> tuple[ArtifactReference, ...]:
+        return self.manifest.artifacts
+
+    @property
+    def metrics(self) -> dict[str, JsonValue]:
+        return self.manifest.metrics
+
+    @property
+    def details(self) -> dict[str, JsonValue]:
+        return self.manifest.details
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return self.manifest.to_dict()
 
 
 def plan(config: AppConfig) -> StageResult:
     region = config.region
     output = config.output.root_directory / "01_shapefiles"
+    region_actions: tuple[str, ...]
     if region.inner_diameter_m is None:
         region_actions = (
             f"Keep all target features uniformly inside the {region.outer_diameter_m:g} m outer diameter.",
@@ -219,6 +240,8 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
 
     output_dir = config.output.root_directory / "01_shapefiles"
     output_dir.mkdir(parents=True, exist_ok=True)
+    invalidate_stage_manifests(output_dir)
+    overpass_json_path = overpass_json_path.resolve() if overpass_json_path is not None else None
 
     tag_inventory_query = build_tag_inventory_query(config)
     tag_inventory_query_path = output_dir / "tag_inventory_query.txt"
@@ -310,7 +333,7 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
     features, surface_overlap_diagnostics = _resolve_surface_overlaps(features, config)
     gap_fill_features = _build_gap_fill_features(features, config)
     features = [*features, *gap_fill_features]
-    category_features = {category: [] for category in CATEGORIES}
+    category_features: dict[str, list[dict[str, Any]]] = {category: [] for category in CATEGORIES}
     for feature in features:
         category_features[feature["properties"]["category"]].append(feature)
 
@@ -403,8 +426,54 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
         encoding="utf-8",
     )
 
-    return ShapefilesStageOutput(
+    feature_source = _feature_source_label(
+        source,
+        config,
+        loaded_supplements,
+        urban_planning,
+    )
+    artifacts = (
+        ArtifactReference("all-features", all_features_path, ArtifactKind.HANDOFF),
+        ArtifactReference("urban-planning", urban_planning_path, ArtifactKind.HANDOFF),
+        ArtifactReference("air-purifiers", air_purifiers_path, ArtifactKind.HANDOFF),
+        *(ArtifactReference(f"category-{category.replace('_', '-')}", path, ArtifactKind.HANDOFF) for category, path in sorted(category_paths.items())),
+        *(ArtifactReference(f"region-{region.replace('_', '-')}", path, ArtifactKind.HANDOFF) for region, path in sorted(region_paths.items())),
+        ArtifactReference("tag-inventory-query", tag_inventory_query_path, ArtifactKind.DIAGNOSTIC),
+        ArtifactReference("tag-inventory-raw", tag_inventory_raw_path, ArtifactKind.DIAGNOSTIC),
+        ArtifactReference("tag-inventory", tag_inventory_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("overpass-query", query_path, ArtifactKind.DIAGNOSTIC),
+        ArtifactReference("overpass-raw", raw_path, ArtifactKind.DIAGNOSTIC),
+        ArtifactReference("geometry-diagnostics", diagnostics_path, ArtifactKind.DIAGNOSTIC),
+        ArtifactReference("non-contributing-features", diagnostics_geojson_path, ArtifactKind.DIAGNOSTIC),
+        ArtifactReference("imagery-diagnostics", imagery_diagnostics_path, ArtifactKind.DIAGNOSTIC),
+        ArtifactReference("imagery-overlay", imagery_overlay_path, ArtifactKind.DIAGNOSTIC),
+        *_imagery_evidence_artifacts(imagery_diagnostics),
+        ArtifactReference("summary", summary_path, ArtifactKind.SUPPORTING),
+        ArtifactReference("report", report_path, ArtifactKind.REPORT),
+        ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
+    )
+    manifest = publish_stage_manifest(
+        stage="shapefiles",
+        status=StageStatus.COMPLETED,
         output_directory=output_dir,
+        report_path=report_path,
+        preview_path=preview_path,
+        input_state_fingerprint=_shapefiles_input_fingerprint(config, overpass_json_path),
+        artifacts=artifacts,
+        metrics={
+            "raw_element_count": raw_element_count,
+            "accepted_feature_count": len(reference_features),
+            "skipped_feature_count": skipped_count,
+        },
+        details={
+            "source": feature_source,
+            "categories": list[JsonValue](sorted(category_paths)),
+            "regions": list[JsonValue](sorted(region_paths)),
+        },
+    )
+
+    return ShapefilesStageOutput(
+        manifest=manifest,
         tag_inventory_query_path=tag_inventory_query_path,
         tag_inventory_raw_path=tag_inventory_raw_path,
         tag_inventory_path=tag_inventory_path,
@@ -420,18 +489,171 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
         imagery_diagnostics_path=imagery_diagnostics_path,
         imagery_overlay_path=imagery_overlay_path,
         summary_path=summary_path,
-        report_path=report_path,
-        preview_path=preview_path,
-        source=_feature_source_label(
-            source,
-            config,
-            loaded_supplements,
-            urban_planning,
-        ),
+        source=feature_source,
         raw_element_count=raw_element_count,
         accepted_feature_count=len(reference_features),
         skipped_feature_count=skipped_count,
     )
+
+
+def _shapefiles_input_fingerprint(
+    config: AppConfig,
+    overpass_json_path: Path | None,
+) -> dict[str, JsonValue]:
+    """Fingerprint configuration and resolved local sources, never generated outputs."""
+
+    paths = [config.path]
+    stage_dir = config.output.root_directory / "01_shapefiles"
+    stage_cache_paths = {
+        (stage_dir / "overpass_raw.json").resolve(),
+        (stage_dir / "tag_inventory_raw.json").resolve(),
+    }
+    is_stage_owned_cache = overpass_json_path is not None and overpass_json_path.resolve() in stage_cache_paths
+    if overpass_json_path is not None and not is_stage_owned_cache:
+        paths.append(overpass_json_path)
+    for supplemental in config.shapefiles.supplemental:
+        if supplemental.enabled:
+            paths.append(supplemental.path)
+            dbf_path = supplemental.path.with_suffix(".dbf")
+            if dbf_path.is_file():
+                paths.append(dbf_path)
+    for planning_input in config.urban_planning.inputs:
+        if planning_input.enabled:
+            paths.append(planning_input.path)
+    if any(planning_input.enabled for planning_input in config.urban_planning.inputs):
+        paths.append(config.trees.model_library_path)
+        if config.air_purifiers.model_library_path is not None:
+            paths.append(config.air_purifiers.model_library_path)
+    return lightweight_state_fingerprint(
+        {
+            "stage": "shapefiles",
+            "runtime_configuration": _shapefiles_runtime_configuration(config),
+            "overpass_source": (
+                "stage-owned-cache"
+                if is_stage_owned_cache
+                else str(overpass_json_path.resolve())
+                if overpass_json_path is not None
+                else config.inputs.overpass_url
+            ),
+        },
+        paths,
+    )
+
+
+def _shapefiles_runtime_configuration(config: AppConfig) -> dict[str, Any]:
+    """Return canonical effective settings that can change Stage 1 outputs."""
+
+    return {
+        "region": {
+            "name": config.region.name,
+            "center_lat": config.region.center_lat,
+            "center_lon": config.region.center_lon,
+            "crs": config.region.crs,
+            "inner_diameter_m": config.region.inner_diameter_m,
+            "outer_diameter_m": config.region.outer_diameter_m,
+        },
+        "inputs": {
+            "overpass_url": config.inputs.overpass_url,
+            "overpass_timeout_s": config.inputs.overpass_timeout_s,
+            "overpass_max_attempts": config.inputs.overpass_max_attempts,
+            "overpass_retry_backoff_s": config.inputs.overpass_retry_backoff_s,
+            "tree_overlap_tolerance_m": config.inputs.tree_overlap_tolerance_m,
+        },
+        "shapefiles": {
+            "classification_rules": [
+                {
+                    "category": rule.category,
+                    "group_tag": rule.group_tag,
+                    "match_any": list(rule.match_any),
+                }
+                for rule in config.shapefiles.classification_rules
+            ],
+            "surface_precedence": list(config.shapefiles.surface_precedence),
+            "supplemental": [
+                {
+                    "name": supplemental.name,
+                    "path": str(supplemental.path.resolve()),
+                    "crs": supplemental.crs,
+                    "category": supplemental.category,
+                    "group_tag": supplemental.group_tag,
+                    "enabled": supplemental.enabled,
+                }
+                for supplemental in config.shapefiles.supplemental
+            ],
+        },
+        "urban_planning": {
+            "inputs": [
+                {
+                    "name": planning_input.name,
+                    "path": str(planning_input.path.resolve()),
+                    "crs": planning_input.crs,
+                    "enabled": planning_input.enabled,
+                }
+                for planning_input in config.urban_planning.inputs
+            ],
+            "tree_model_library_path": str(config.trees.model_library_path.resolve()),
+            "air_purifier_model_library_path": (
+                str(config.air_purifiers.model_library_path.resolve())
+                if config.air_purifiers.model_library_path is not None
+                else None
+            ),
+        },
+        "imagery": {
+            "sources": [
+                {
+                    "name": source.name,
+                    "type": source.type,
+                    "url": source.url,
+                    "layer": source.layer,
+                    "enabled": source.enabled,
+                    "crs": source.crs,
+                    "format": source.format,
+                    "width": source.width,
+                    "height": source.height,
+                    "style": source.style,
+                    "transparent": source.transparent,
+                }
+                for source in config.imagery.sources
+            ]
+        },
+        "building_roof_default_base_height_m": (
+            config.city_models.building_roof_default_base_height_m
+        ),
+    }
+
+
+def _imagery_evidence_artifacts(imagery_diagnostics: dict[str, Any]) -> tuple[ArtifactReference, ...]:
+    """List only imagery evidence files that this run actually generated."""
+
+    records = imagery_diagnostics.get("sources")
+    if not isinstance(records, list):
+        return ()
+    artifacts: list[ArtifactReference] = []
+    for index, record in enumerate(records, start=1):
+        if not isinstance(record, dict):
+            continue
+        source_name = _slug(str(record.get("name", f"source-{index}")))
+        candidates: list[tuple[str, str, ArtifactKind]] = [
+            ("request", "request_url_path", ArtifactKind.DIAGNOSTIC),
+        ]
+        if record.get("status") == "fetched":
+            candidates.append(("image", "image_path", ArtifactKind.SUPPORTING))
+        elif record.get("status") == "error":
+            candidates.append(("error", "error_path", ArtifactKind.DIAGNOSTIC))
+        for role, field, kind in candidates:
+            raw_path = record.get(field)
+            if not isinstance(raw_path, str):
+                continue
+            path = Path(raw_path)
+            if path.is_file():
+                artifacts.append(
+                    ArtifactReference(
+                        f"imagery-{source_name}-{index}-{role}",
+                        path,
+                        kind,
+                    )
+                )
+    return tuple(artifacts)
 
 
 def build_tag_inventory_query(config: AppConfig) -> str:
@@ -663,7 +885,7 @@ def _shapefile_record_polygons(content: bytes, path: Path, record_number: int) -
     ]
     rings = [
         points[start:end]
-        for start, end in zip(part_starts, [*part_starts[1:], point_count])
+        for start, end in zip(part_starts, [*part_starts[1:], point_count], strict=True)
         if end - start >= 4
     ]
     return _polygons_from_shapefile_rings(rings)
@@ -1696,6 +1918,7 @@ def _load_or_fetch_overpass(
         },
         method="POST",
     )
+    failure: BaseException
     for attempt in range(1, config.inputs.overpass_max_attempts + 1):
         try:
             with request.urlopen(http_request, timeout=config.inputs.overpass_timeout_s) as response:
@@ -1855,8 +2078,11 @@ def _building_base_height_m(tags: dict[str, Any], roof_default_m: float) -> floa
     if tags.get("building") != "roof":
         return 0.0
 
+    raw_height = tags.get("min_height")
+    if raw_height is None:
+        return roof_default_m
     try:
-        height = float(tags.get("min_height"))
+        height = float(raw_height)
     except (TypeError, ValueError):
         return roof_default_m
     return height if math.isfinite(height) and height >= 0 else roof_default_m
@@ -2125,7 +2351,7 @@ def _line_distance_to_center_m(coordinates: list[list[float]], config: AppConfig
         return point_distances[0]
     segment_distances = [
         _segment_distance_to_origin_m(start, end)
-        for start, end in zip(projected, projected[1:])
+        for start, end in zip(projected, projected[1:], strict=False)
     ]
     return min([*point_distances, *segment_distances])
 
@@ -2227,7 +2453,7 @@ def _build_gap_fill_features(features: list[dict[str, Any]], config: AppConfig) 
             ("annular", polygon)
             for polygon in _extract_polygons(make_valid(missing.intersection(annular_roi_polygon)))
         )
-    gap_fill_features = []
+    gap_fill_features: list[dict[str, Any]] = []
     for roi_zone, polygon in zone_polygons:
         if not polygon.is_empty and polygon.area > 0.01:
             gap_fill_features.append(_gap_fill_feature_from_polygon(polygon, len(gap_fill_features) + 1, config, roi_zone))
@@ -2374,7 +2600,7 @@ def _non_contributing_features(features: list[dict[str, Any]]) -> list[dict[str,
 def _route_urban_planning_feature(feature: dict[str, Any]) -> dict[str, Any]:
     """Add the established Stage 1 reference properties for a planning point."""
 
-    routed = {
+    routed: dict[str, Any] = {
         "type": "Feature",
         "geometry": dict(feature["geometry"]),
         "properties": dict(feature["properties"]),

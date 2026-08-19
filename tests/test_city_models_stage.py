@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from cities_reconstruction.adapters.city4cfd import City4CFDExecutionResult
 from cities_reconstruction.config import ConfigError, load_config
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    ArtifactReference,
+    StageStatus,
+    publish_stage_manifest,
+)
 from cities_reconstruction.stages import city_models, point_cloud
 from tests.config_helpers import write_complete_config
+from tests.stage_manifest_helpers import publish_test_stage_manifest
 
 
 class FakeExecutor:
@@ -113,9 +121,21 @@ def test_prepares_city4cfd_lod22_handoff_from_point_cloud_manifest(
     assert config["reconstruction_regions"][0]["lod"] == "2.2"
     assert config["bnd_type_bpg"] == "Rectangle"
     assert "output_dir" not in config
+    legacy_manifest_path = result.output_directory / "city4cfd_reconstruction_manifest.json"
+    assert result.manifest_path == result.output_directory / "manifest.json"
+    assert not legacy_manifest_path.exists()
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["manifest_schema_version"] == 1
+    assert manifest["schema_version"] == 2
+    assert manifest["stage"] == "city-models"
+    assert manifest["status"] == "completed"
     assert manifest["input_state_fingerprint"]["limitation"].startswith("Lightweight change detector")
+    artifacts = {artifact["name"]: artifact for artifact in manifest["artifacts"]}
+    assert artifacts["run-script"] == {
+        "name": "run-script",
+        "path": str(result.run_script_path),
+        "kind": "log",
+        "required": True,
+    }
     run_script = result.run_script_path.read_text(encoding="utf-8")
     assert "if command -v city4cfd" in run_script
     assert "elif command -v docker" in run_script
@@ -140,11 +160,10 @@ def test_prepares_city4cfd_lod22_handoff_from_point_cloud_manifest(
     assert diagnostics["overlap_status"] == "warning"
     assert diagnostics["overlap_pair_count"] == 1
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["stage_status"] == "completed"
-    assert manifest["city4cfd_execution"]["status"] == "unavailable_handoff"
-    assert manifest["city4cfd_generated_surfaces"]["buildings"].endswith("Mesh_Buildings.obj")
-    assert manifest["city4cfd_generated_surfaces"]["terrain"].endswith("Mesh_Terrain.obj")
-    assert {layer["category"] for layer in manifest["surface_layers"]} == {
+    assert manifest["details"]["city4cfd_execution"]["status"] == "unavailable_handoff"
+    assert manifest["details"]["city4cfd_generated_surfaces"]["buildings"].endswith("Mesh_Buildings.obj")
+    assert manifest["details"]["city4cfd_generated_surfaces"]["terrain"].endswith("Mesh_Terrain.obj")
+    assert {layer["category"] for layer in manifest["details"]["surface_layers"]} == {
         "roads",
         "green_areas",
         "concrete",
@@ -152,8 +171,11 @@ def test_prepares_city4cfd_lod22_handoff_from_point_cloud_manifest(
         "other_terrain",
         "gap_fill",
     }
-    assert all(layer["layer_path"].endswith(f"{layer['category']}.geojson") for layer in manifest["surface_layers"])
-    assert set(manifest["city4cfd_generated_surfaces"]["surface_layers"]) == {
+    assert all(
+        layer["layer_path"].endswith(f"{layer['category']}.geojson")
+        for layer in manifest["details"]["surface_layers"]
+    )
+    assert set(manifest["details"]["city4cfd_generated_surfaces"]["surface_layers"]) == {
         "roads",
         "green_areas",
         "concrete",
@@ -165,13 +187,38 @@ def test_prepares_city4cfd_lod22_handoff_from_point_cloud_manifest(
     assert "Stage 1 Surface Layers" in report
     assert "SurfaceLayer polygon imports" in report
     assert "`roads`" in report
+    assert result.to_dict() == manifest
+
+
+def test_city_models_surface_layers_reject_wrong_manifest_artifact_kind(tmp_path: Path) -> None:
+    config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
+    config = load_config(config_path)
+    stage1_dir = config.output.root_directory / "01_shapefiles"
+    manifest = publish_test_stage_manifest(
+        stage1_dir,
+        stage="shapefiles",
+        named_artifacts={
+            "summary": (stage1_dir / "summary.json", ArtifactKind.SUPPORTING),
+            "category-roads": (stage1_dir / "roads.geojson", ArtifactKind.SUPPORTING),
+        },
+    )
+    surface_layers_dir = tmp_path / "surface-layers"
+    surface_layers_dir.mkdir()
+
+    with pytest.raises(ConfigError, match="category-roads") as error:
+        city_models._prepare_stage1_surface_layers(config, surface_layers_dir, tmp_path)
+
+    assert str(manifest.manifest_path) in str(error.value)
 
 
 def test_city_models_rejects_failed_alignment(tmp_path: Path) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="failed")
-    manifest_path = config_path.parent / "outputs" / "03_city_models" / "city4cfd_reconstruction_manifest.json"
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    stage_dir = config_path.parent / "outputs" / "03_city_models"
+    manifest_path = stage_dir / "manifest.json"
+    legacy_manifest_path = stage_dir / "city4cfd_reconstruction_manifest.json"
+    stage_dir.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text('{"stale":true}', encoding="utf-8")
+    legacy_manifest_path.write_text('{"stale":true}', encoding="utf-8")
     stdout_log_path = manifest_path.parent / "city4cfd_stdout.log"
     stderr_log_path = manifest_path.parent / "city4cfd_stderr.log"
     stdout_log_path.write_text("stale stdout", encoding="utf-8")
@@ -181,8 +228,55 @@ def test_city_models_rejects_failed_alignment(tmp_path: Path) -> None:
         city_models.run(load_config(config_path))
 
     assert not manifest_path.exists()
+    assert not legacy_manifest_path.exists()
     assert not stdout_log_path.exists()
     assert not stderr_log_path.exists()
+
+
+def test_city_models_rejects_wrong_stage_point_cloud_manifest(tmp_path: Path) -> None:
+    config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
+    manifest_path = config_path.parent / "outputs" / "02_point_cloud" / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["stage"] = "shapefiles"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="expected stage 'point-cloud'"):
+        city_models.run(load_config(config_path), executor=FakeExecutor(_execution_result()))
+
+
+def test_city_models_rejects_failed_point_cloud_manifest(tmp_path: Path) -> None:
+    config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
+    manifest_path = config_path.parent / "outputs" / "02_point_cloud" / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["status"] = "failed_external_execution"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="not completed"):
+        city_models.run(load_config(config_path), executor=FakeExecutor(_execution_result()))
+
+
+def test_city_models_rejects_malformed_point_cloud_manifest(tmp_path: Path) -> None:
+    config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
+    manifest_path = config_path.parent / "outputs" / "02_point_cloud" / "manifest.json"
+    manifest_path.write_text("{", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="cannot read stage manifest"):
+        city_models.run(load_config(config_path), executor=FakeExecutor(_execution_result()))
+
+
+def test_city_models_rejects_point_cloud_manifest_missing_required_handoff(tmp_path: Path) -> None:
+    config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
+    manifest_path = config_path.parent / "outputs" / "02_point_cloud" / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["artifacts"] = [
+        artifact
+        for artifact in payload["artifacts"]
+        if artifact["name"] != "projected-building-footprints"
+    ]
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="does not declare handoff artifact.*projected-building-footprints"):
+        city_models.run(load_config(config_path), executor=FakeExecutor(_execution_result()))
 
 
 def test_failed_city_models_qa_does_not_publish_manifest(
@@ -191,9 +285,11 @@ def test_failed_city_models_qa_does_not_publish_manifest(
 ) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
     output_dir = config_path.parent / "outputs" / "03_city_models"
-    manifest_path = output_dir / "city4cfd_reconstruction_manifest.json"
+    manifest_path = output_dir / "manifest.json"
+    legacy_manifest_path = output_dir / "city4cfd_reconstruction_manifest.json"
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text('{"stale":true}', encoding="utf-8")
+    legacy_manifest_path.write_text('{"stale":true}', encoding="utf-8")
     executor = FakeExecutor(_execution_result())
     monkeypatch.setattr(
         city_models,
@@ -205,6 +301,7 @@ def test_failed_city_models_qa_does_not_publish_manifest(
         city_models.run(load_config(config_path), executor=executor)
 
     assert not manifest_path.exists()
+    assert not legacy_manifest_path.exists()
     assert not (output_dir / ".stage.lock").exists()
 
 
@@ -233,16 +330,17 @@ def test_external_failure_publishes_failed_handoff_and_discards_partial_meshes(
         executor=FakeExecutor(execution, write_partial_mesh),
     )
 
-    assert result.stage_status == "failed_external_execution"
+    assert result.status is StageStatus.FAILED_EXTERNAL_EXECUTION
     assert result.city4cfd_return_code == 17
     assert not result.building_mesh_path.exists()
     assert result.stdout_log_path.read_text(encoding="utf-8") == "partial output\n"
     assert result.stderr_log_path.read_text(encoding="utf-8") == "reconstruction failed\n"
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["stage_status"] == "failed_external_execution"
-    assert manifest["city4cfd_execution"]["return_code"] == 17
-    assert manifest["city4cfd_execution"]["stdout_truncated"] is False
-    assert manifest["city4cfd_generated_surfaces"]["buildings"].endswith("Mesh_Buildings.obj")
+    assert manifest["status"] == "failed_external_execution"
+    assert manifest["details"]["city4cfd_execution"]["return_code"] == 17
+    assert manifest["details"]["city4cfd_execution"]["stdout_truncated"] is False
+    assert manifest["details"]["city4cfd_generated_surfaces"]["buildings"].endswith("Mesh_Buildings.obj")
+    assert result.to_dict() == manifest
     assert "qa-stl-preview" in result.preview_path.read_text(encoding="utf-8")
 
 
@@ -277,7 +375,133 @@ def test_city_models_runs_city4cfd_when_available(tmp_path: Path, monkeypatch: p
     assert "City4CFD OBJ triangles" in preview
     assert 'id="meshOverlay"' in preview
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["city4cfd_execution"]["status"] == "native_succeeded"
+    assert manifest["details"]["city4cfd_execution"]["status"] == "native_succeeded"
+    artifacts = {artifact["name"]: artifact for artifact in manifest["artifacts"]}
+    assert artifacts["building-mesh"]["required"] is True
+    assert artifacts["terrain-mesh"]["required"] is True
+
+
+@pytest.mark.parametrize("status", ["native_succeeded", "docker_succeeded"])
+def test_successful_city4cfd_without_core_geometry_does_not_publish_manifest(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
+    manifest_path = config_path.parent / "outputs" / "03_city_models" / "manifest.json"
+
+    with pytest.raises(ConfigError, match="reported success.*required generated geometry"):
+        city_models.run(
+            load_config(config_path),
+            executor=FakeExecutor(
+                _execution_result(status, backend=status.removesuffix("_succeeded"), return_code=0)
+            ),
+        )
+
+    assert not manifest_path.exists()
+
+
+def test_successful_nonseparate_city4cfd_requires_configured_aggregate_geometry(
+    tmp_path: Path,
+) -> None:
+    config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
+    config = load_config(config_path)
+    config = replace(
+        config,
+        city_models=replace(config.city_models, output_separately=False),
+    )
+    output_dir = config.output.root_directory / "03_city_models"
+
+    def write_aggregate_mesh(_request) -> None:
+        generated_dir = output_dir / "city4cfd_output"
+        generated_dir.mkdir(parents=True, exist_ok=True)
+        _write_obj_mesh(generated_dir / "Mesh.obj", kind="city")
+
+    result = city_models.run(
+        config,
+        executor=FakeExecutor(
+            _execution_result("native_succeeded", backend="native", return_code=0),
+            write_aggregate_mesh,
+        ),
+    )
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    artifacts = {artifact["name"]: artifact for artifact in manifest["artifacts"]}
+    assert artifacts["city-mesh"] == {
+        "name": "city-mesh",
+        "path": str(output_dir / "city4cfd_output" / "Mesh.obj"),
+        "kind": "handoff",
+        "required": True,
+    }
+    assert "building-mesh" not in artifacts
+    assert "terrain-mesh" not in artifacts
+
+
+@pytest.mark.parametrize("second_status", ["native_succeeded", "external_failed"])
+def test_switching_from_split_to_aggregate_does_not_publish_stale_split_meshes(
+    tmp_path: Path,
+    second_status: str,
+) -> None:
+    config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
+    split_config = load_config(config_path)
+    output_dir = split_config.output.root_directory / "03_city_models"
+    generated_dir = output_dir / "city4cfd_output"
+
+    def write_split_meshes(_request) -> None:
+        generated_dir.mkdir(parents=True, exist_ok=True)
+        _write_obj_mesh(generated_dir / "Mesh_Buildings.obj", kind="building")
+        _write_obj_mesh(generated_dir / "Mesh_Terrain.obj", kind="terrain")
+        _write_semantic_obj_meshes(generated_dir)
+
+    city_models.run(
+        split_config,
+        executor=FakeExecutor(
+            _execution_result("native_succeeded", backend="native", return_code=0),
+            write_split_meshes,
+        ),
+    )
+    stale_split_paths = (
+        generated_dir / "Mesh_Buildings.obj",
+        generated_dir / "Mesh_Terrain.obj",
+        generated_dir / "Mesh_roads.obj",
+        generated_dir / "Mesh_Terrain_Combined.obj",
+    )
+    assert all(path.exists() for path in stale_split_paths)
+
+    aggregate_config = replace(
+        split_config,
+        city_models=replace(split_config.city_models, output_separately=False),
+    )
+
+    def write_aggregate_mesh(_request) -> None:
+        generated_dir.mkdir(parents=True, exist_ok=True)
+        _write_obj_mesh(generated_dir / "Mesh.obj", kind="city")
+
+    callback = write_aggregate_mesh if second_status == "native_succeeded" else None
+    result = city_models.run(
+        aggregate_config,
+        executor=FakeExecutor(
+            _execution_result(
+                second_status,
+                backend="native",
+                return_code=0 if second_status == "native_succeeded" else 1,
+            ),
+            callback,
+        ),
+    )
+
+    assert all(not path.exists() for path in stale_split_paths)
+    artifact_names = {artifact.name for artifact in result.artifacts}
+    assert not {
+        "building-mesh",
+        "terrain-mesh",
+        "combined-terrain-mesh",
+        "surface-mesh-roads",
+    } & artifact_names
+    if second_status == "native_succeeded":
+        assert "city-mesh" in artifact_names
+    else:
+        assert "city-mesh" not in artifact_names
+    assert "City4CFD OBJ triangles" not in result.preview_path.read_text(encoding="utf-8")
 
 
 def test_city_models_preview_loads_meshes_from_configured_city4cfd_output_dir(
@@ -314,14 +538,16 @@ def test_city_models_preview_loads_meshes_from_configured_city4cfd_output_dir(
     assert "roads surface layer" in preview
     assert '"totalSurfaceLayerTriangles":6' in preview
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["city4cfd_generated_surfaces"]["buildings"].endswith("city4cfd_output/Mesh_Buildings.obj")
-    assert manifest["city4cfd_generated_surfaces"]["combined_terrain"].endswith(
+    assert manifest["details"]["city4cfd_generated_surfaces"]["buildings"].endswith(
+        "city4cfd_output/Mesh_Buildings.obj"
+    )
+    assert manifest["details"]["city4cfd_generated_surfaces"]["combined_terrain"].endswith(
         "city4cfd_output/Mesh_Terrain_Combined.obj"
     )
-    assert manifest["city4cfd_generated_surfaces"]["surface_layers"]["roads"].endswith(
+    assert manifest["details"]["city4cfd_generated_surfaces"]["surface_layers"]["roads"].endswith(
         "city4cfd_output/Mesh_roads.obj"
     )
-    assert all(layer["mesh_exists"] for layer in manifest["surface_layers"])
+    assert all(layer["mesh_exists"] for layer in manifest["details"]["surface_layers"])
 
 
 def test_city4cfd_mesh_scene_recenters_elevated_obj_z(tmp_path: Path) -> None:
@@ -665,21 +891,35 @@ def _prepare_point_cloud_fixture(tmp_path: Path, alignment_status: str) -> Path:
         json.dumps({"alignment_status": alignment_status, "estimated_horizontal_shift_m": 0.0}),
         encoding="utf-8",
     )
-    manifest_path = point_dir / "city4cfd_point_cloud_manifest.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "alignment_diagnostics": str(diagnostics_path),
-                "alignment_status": alignment_status,
-                "city4cfd_inputs": {
-                    "ground_point_cloud": str(ground_path),
-                    "building_point_cloud": str(building_path),
-                    "building_footprints": str(footprint_path),
-                    "crs": "EPSG:25832",
-                },
-            }
+    publish_stage_manifest(
+        stage="point-cloud",
+        status=StageStatus.COMPLETED,
+        output_directory=point_dir,
+        report_path=point_dir / "point_cloud_report.md",
+        preview_path=point_dir / "point_cloud_alignment_preview.html",
+        input_state_fingerprint={"fixture": "city-models-tests"},
+        artifacts=(
+            ArtifactReference(
+                "projected-building-footprints",
+                footprint_path,
+                ArtifactKind.HANDOFF,
+            ),
+            ArtifactReference("ground-points", ground_path, ArtifactKind.HANDOFF),
+            ArtifactReference("building-points", building_path, ArtifactKind.HANDOFF),
+            ArtifactReference(
+                "alignment-diagnostics",
+                diagnostics_path,
+                ArtifactKind.DIAGNOSTIC,
+            ),
         ),
-        encoding="utf-8",
+        metrics={
+            "ground_point_count": 4,
+            "building_point_count": 4,
+            "tree_point_count": 0,
+            "unclassified_point_count": 0,
+            "alignment_status": alignment_status,
+        },
+        details={"crs": "EPSG:25832"},
     )
     write_complete_config(
         config_path,
@@ -765,6 +1005,25 @@ def _write_stage1_surface_fixture(shapefiles_dir: Path, center_lon: float, cente
             }
         ),
         encoding="utf-8",
+    )
+    publish_test_stage_manifest(
+        shapefiles_dir,
+        stage="shapefiles",
+        named_artifacts={
+            "summary": (shapefiles_dir / "summary.json", ArtifactKind.SUPPORTING),
+            "category-buildings": (
+                shapefiles_dir / "buildings.geojson",
+                ArtifactKind.HANDOFF,
+            ),
+            "category-trees": (shapefiles_dir / "trees.geojson", ArtifactKind.HANDOFF),
+            **{
+                f"category-{category.replace('_', '-')}": (
+                    shapefiles_dir / f"{category}.geojson",
+                    ArtifactKind.HANDOFF,
+                )
+                for category in offsets
+            },
+        },
     )
 
 

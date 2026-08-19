@@ -8,26 +8,36 @@ checks that should be reviewed before reconstruction.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from html import escape
 import json
 import math
-from pathlib import Path
 import struct
-from typing import Any, Iterable
 import zlib
+from collections.abc import Iterable
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+from typing import Any
 
 from cities_reconstruction.artifacts import (
     atomic_text_writer,
     atomic_write_json,
     atomic_write_text,
     lightweight_state_fingerprint,
-    manifest_provenance,
     stage_output_lock,
 )
 from cities_reconstruction.config import AppConfig, ConfigError
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    ArtifactReference,
+    JsonValue,
+    StageManifest,
+    StageStatus,
+    invalidate_stage_manifests,
+    publish_stage_manifest,
+    require_completed_manifest,
+    require_manifest_artifact,
+)
 from cities_reconstruction.stage_result import StageResult
-
 
 NODATA_DEFAULT = -9999.0
 BUILDING_HEIGHT_THRESHOLD_M = 2.0
@@ -153,40 +163,57 @@ class PolygonSpatialIndex:
 
 @dataclass(frozen=True)
 class PointCloudStageOutput:
-    output_directory: Path
+    manifest: StageManifest
     projected_footprints_path: Path
     ground_points_path: Path
     building_points_path: Path
     tree_points_path: Path | None
     unclassified_points_path: Path
-    manifest_path: Path
     diagnostics_path: Path
-    preview_path: Path
-    report_path: Path
     ground_point_count: int
     building_point_count: int
     tree_point_count: int
     unclassified_point_count: int
     alignment_status: str
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "output_directory": str(self.output_directory),
-            "projected_footprints_path": str(self.projected_footprints_path),
-            "ground_points_path": str(self.ground_points_path),
-            "building_points_path": str(self.building_points_path),
-            "tree_points_path": str(self.tree_points_path) if self.tree_points_path else None,
-            "unclassified_points_path": str(self.unclassified_points_path),
-            "manifest_path": str(self.manifest_path),
-            "diagnostics_path": str(self.diagnostics_path),
-            "preview_path": str(self.preview_path),
-            "report_path": str(self.report_path),
-            "ground_point_count": self.ground_point_count,
-            "building_point_count": self.building_point_count,
-            "tree_point_count": self.tree_point_count,
-            "unclassified_point_count": self.unclassified_point_count,
-            "alignment_status": self.alignment_status,
-        }
+    @property
+    def stage(self) -> str:
+        return self.manifest.stage
+
+    @property
+    def status(self) -> StageStatus:
+        return self.manifest.status
+
+    @property
+    def output_directory(self) -> Path:
+        return self.manifest.output_directory
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.manifest.manifest_path
+
+    @property
+    def report_path(self) -> Path:
+        return self.manifest.report_path
+
+    @property
+    def preview_path(self) -> Path:
+        return self.manifest.preview_path
+
+    @property
+    def artifacts(self) -> tuple[ArtifactReference, ...]:
+        return self.manifest.artifacts
+
+    @property
+    def metrics(self) -> dict[str, JsonValue]:
+        return self.manifest.metrics
+
+    @property
+    def details(self) -> dict[str, JsonValue]:
+        return self.manifest.details
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return self.manifest.to_dict()
 
 
 def plan(config: AppConfig) -> StageResult:
@@ -228,7 +255,10 @@ def run(
 
     output_dir = config.output.root_directory / "02_point_cloud"
     with stage_output_lock(output_dir, "point-cloud"):
-        (output_dir / "city4cfd_point_cloud_manifest.json").unlink(missing_ok=True)
+        invalidate_stage_manifests(
+            output_dir,
+            legacy_names=("city4cfd_point_cloud_manifest.json",),
+        )
         _validate_inputs(config)
         return _run_locked(config, building_footprints_path=building_footprints_path)
 
@@ -239,7 +269,7 @@ def _run_locked(
     building_footprints_path: Path | None,
 ) -> PointCloudStageOutput:
     output_dir = config.output.root_directory / "02_point_cloud"
-    manifest_path = output_dir / "city4cfd_point_cloud_manifest.json"
+    manifest_path = output_dir / "manifest.json"
 
     footprint_path = _select_building_footprints_path(config, building_footprints_path)
     try:
@@ -255,7 +285,8 @@ def _run_locked(
     bbox = _region_bbox_projected(config)
 
     tree_mask = _load_tree_canopy_mask(config)
-    tree_tag_points = _load_projected_tree_tag_points(config) if tree_mask is not None else []
+    tree_features_path = _select_optional_tree_features_path(config) if tree_mask is not None else None
+    tree_tag_points = _load_projected_tree_tag_points(tree_features_path)
     (
         ground_points,
         building_points,
@@ -303,19 +334,7 @@ def _run_locked(
         (output_dir / "tree_points.ply").unlink(missing_ok=True)
     _write_geojson(projected_footprints_path, projected_features, config.region.crs)
     atomic_write_json(diagnostics_path, diagnostics)
-    fingerprint = _point_cloud_input_fingerprint(config, footprint_path)
-    manifest = _build_manifest(
-        config,
-        source_footprint_path=footprint_path,
-        projected_footprint_path=projected_footprints_path,
-        ground_path=ground_path,
-        building_path=building_path,
-        tree_path=tree_path,
-        unclassified_path=unclassified_path,
-        diagnostics_path=diagnostics_path,
-        diagnostics=diagnostics,
-        fingerprint=fingerprint,
-    )
+    fingerprint = _point_cloud_input_fingerprint(config, footprint_path, tree_features_path)
     atomic_write_text(
         preview_path,
         _render_preview(
@@ -344,19 +363,70 @@ def _run_locked(
             diagnostics=diagnostics,
         ),
     )
-    atomic_write_json(manifest_path, manifest)
+    artifacts = [
+        ArtifactReference(
+            "projected-building-footprints",
+            projected_footprints_path,
+            ArtifactKind.HANDOFF,
+        ),
+        ArtifactReference("ground-points", ground_path, ArtifactKind.HANDOFF),
+        ArtifactReference("building-points", building_path, ArtifactKind.HANDOFF),
+    ]
+    if tree_path is not None:
+        artifacts.append(
+            ArtifactReference(
+                "tree-points",
+                tree_path,
+                ArtifactKind.HANDOFF,
+                required=False,
+            )
+        )
+    artifacts.extend(
+        (
+            ArtifactReference(
+                "unclassified-points",
+                unclassified_path,
+                ArtifactKind.DIAGNOSTIC,
+            ),
+            ArtifactReference(
+                "alignment-diagnostics",
+                diagnostics_path,
+                ArtifactKind.DIAGNOSTIC,
+            ),
+            ArtifactReference("report", report_path, ArtifactKind.REPORT),
+            ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
+        )
+    )
+    manifest = publish_stage_manifest(
+        stage="point-cloud",
+        status=StageStatus.COMPLETED,
+        output_directory=output_dir,
+        report_path=report_path,
+        preview_path=preview_path,
+        input_state_fingerprint=fingerprint,
+        artifacts=tuple(artifacts),
+        metrics={
+            "ground_point_count": len(ground_points),
+            "building_point_count": len(building_points),
+            "tree_point_count": len(tree_points),
+            "unclassified_point_count": len(unclassified_points),
+            "alignment_status": str(diagnostics["alignment_status"]),
+        },
+        details={
+            "source_building_footprints": str(footprint_path),
+            "crs": config.region.crs,
+            "tree_filter": diagnostics["tree_filter"],
+        },
+    )
 
     return PointCloudStageOutput(
-        output_directory=output_dir,
+        manifest=manifest,
         projected_footprints_path=projected_footprints_path,
         ground_points_path=ground_path,
         building_points_path=building_path,
         tree_points_path=tree_path,
         unclassified_points_path=unclassified_path,
-        manifest_path=manifest_path,
         diagnostics_path=diagnostics_path,
-        preview_path=preview_path,
-        report_path=report_path,
         ground_point_count=len(ground_points),
         building_point_count=len(building_points),
         tree_point_count=len(tree_points),
@@ -394,13 +464,30 @@ def _select_building_footprints_path(
         if not explicit_path.is_file():
             raise ConfigError(f"explicit building-footprint GeoJSON does not exist: {explicit_path}")
         return explicit_path
-    stage1_path = config.output.root_directory / "01_shapefiles" / "buildings.geojson"
-    if not stage1_path.is_file():
-        raise ConfigError(
-            "missing default Stage 1 building footprints. "
-            f"Run `shapefiles` first or provide an explicit override: {stage1_path}"
-        )
-    return stage1_path
+    stage1_manifest = require_completed_manifest(
+        config.output.root_directory / "01_shapefiles" / "manifest.json",
+        expected_stage="shapefiles",
+    )
+    return require_manifest_artifact(
+        stage1_manifest,
+        name="category-buildings",
+        kind=ArtifactKind.HANDOFF,
+    ).path
+
+
+def _select_optional_tree_features_path(config: AppConfig) -> Path | None:
+    manifest_path = config.output.root_directory / "01_shapefiles" / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        stage1_manifest = require_completed_manifest(manifest_path, expected_stage="shapefiles")
+        return require_manifest_artifact(
+            stage1_manifest,
+            name="category-trees",
+            kind=ArtifactKind.HANDOFF,
+        ).path
+    except ConfigError:
+        return None
 
 
 def _read_feature_collection(path: Path) -> list[dict[str, Any]]:
@@ -633,9 +720,8 @@ def _load_tree_canopy_mask(config: AppConfig) -> dict[str, Any] | None:
     }
 
 
-def _load_projected_tree_tag_points(config: AppConfig) -> list[tuple[float, float]]:
-    path = config.output.root_directory / "01_shapefiles" / "trees.geojson"
-    if not path.exists():
+def _load_projected_tree_tag_points(path: Path | None) -> list[tuple[float, float]]:
+    if path is None:
         return []
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
@@ -1159,43 +1245,11 @@ def _estimate_horizontal_offset(
     return best_offset, best_score
 
 
-def _build_manifest(
+def _point_cloud_input_fingerprint(
     config: AppConfig,
-    source_footprint_path: Path,
-    projected_footprint_path: Path,
-    ground_path: Path,
-    building_path: Path,
-    tree_path: Path | None,
-    unclassified_path: Path,
-    diagnostics_path: Path,
-    diagnostics: dict[str, Any],
-    fingerprint: dict[str, Any],
+    footprint_path: Path,
+    tree_features_path: Path | None,
 ) -> dict[str, Any]:
-    return {
-        "stage": "point-cloud",
-        **manifest_provenance(fingerprint),
-        "city4cfd_inputs": {
-            "ground_point_cloud": str(ground_path),
-            "building_point_cloud": str(building_path),
-            "tree_point_cloud": str(tree_path) if tree_path is not None else None,
-            "building_footprints": str(projected_footprint_path),
-            "source_building_footprints": str(source_footprint_path),
-            "crs": config.region.crs,
-        },
-        "unclassified_point_cloud": str(unclassified_path),
-        "alignment_diagnostics": str(diagnostics_path),
-        "alignment_status": diagnostics["alignment_status"],
-        "point_counts": {
-            "ground": diagnostics["ground_point_count"],
-            "building": diagnostics["building_point_count"],
-            "tree": diagnostics["tree_point_count"],
-            "unclassified": diagnostics["unclassified_point_count"],
-        },
-        "tree_filter": diagnostics["tree_filter"],
-    }
-
-
-def _point_cloud_input_fingerprint(config: AppConfig, footprint_path: Path) -> dict[str, Any]:
     paths = [config.path, footprint_path]
     for directory in (config.inputs.dtm_directory, config.inputs.dsm_directory):
         if directory is not None:
@@ -1206,8 +1260,7 @@ def _point_cloud_input_fingerprint(config: AppConfig, footprint_path: Path) -> d
             )
     if config.inputs.tree_canopy_overlay_path is not None:
         paths.append(config.inputs.tree_canopy_overlay_path)
-        tree_features_path = config.output.root_directory / "01_shapefiles" / "trees.geojson"
-        if tree_features_path.is_file():
+        if tree_features_path is not None:
             paths.append(tree_features_path)
     return lightweight_state_fingerprint(
         {
@@ -1959,7 +2012,7 @@ def _point_to_ring_distance_m(point: Point2, ring: Ring) -> float:
         return math.inf
     return min(
         _point_to_segment_distance_m(point, start, end)
-        for start, end in zip(ring, [*ring[1:], ring[0]])
+        for start, end in zip(ring, [*ring[1:], ring[0]], strict=True)
     )
 
 

@@ -10,6 +10,9 @@ build/
 
 # scripts
 tools/
+!tools/
+tools/*
+!tools/audit_supplemental_planning_migration.py
 
 # testing
 outputs/

@@ -3,17 +3,89 @@ from __future__ import annotations
 import json
 import struct
 import zlib
+from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from cities_reconstruction.cli import main
+from cities_reconstruction.cli import _stage_exit_code, main
 from cities_reconstruction.config import ConfigError
+from cities_reconstruction.stage_contract import ArtifactReference, JsonValue, StageManifest, StageOutput, StageStatus
 from cities_reconstruction.stages import air_purifiers, point_cloud
 from tests.config_helpers import write_complete_config
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@dataclass(frozen=True)
+class FakeStageOutput:
+    """Small schema-v2 output used by CLI boundary tests."""
+
+    manifest: StageManifest
+
+    @property
+    def stage(self) -> str:
+        return self.manifest.stage
+
+    @property
+    def status(self) -> StageStatus:
+        return self.manifest.status
+
+    @property
+    def output_directory(self) -> Path:
+        return self.manifest.output_directory
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.manifest.manifest_path
+
+    @property
+    def report_path(self) -> Path:
+        return self.manifest.report_path
+
+    @property
+    def preview_path(self) -> Path:
+        return self.manifest.preview_path
+
+    @property
+    def artifacts(self) -> tuple[ArtifactReference, ...]:
+        return self.manifest.artifacts
+
+    @property
+    def metrics(self) -> dict[str, JsonValue]:
+        return self.manifest.metrics
+
+    @property
+    def details(self) -> dict[str, JsonValue]:
+        return self.manifest.details
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return self.manifest.to_dict()
+
+
+def _fake_stage_output(
+    status: StageStatus = StageStatus.COMPLETED,
+    *,
+    metrics: dict[str, JsonValue] | None = None,
+) -> FakeStageOutput:
+    output_directory = Path("stage-output")
+    return FakeStageOutput(
+        StageManifest(
+            schema_version=2,
+            application_version="test",
+            stage="fake-stage",
+            status=status,
+            output_directory=output_directory,
+            manifest_path=output_directory / "manifest.json",
+            report_path=output_directory / "report.md",
+            preview_path=output_directory / "preview.html",
+            finished_at_utc="2026-08-19T00:00:00+00:00",
+            input_state_fingerprint={},
+            artifacts=(),
+            metrics={} if metrics is None else metrics,
+            details={},
+        )
+    )
 
 
 def test_validate_config_command(capsys) -> None:
@@ -47,6 +119,27 @@ def test_missing_config_returns_configuration_error(capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 2
     assert "Configuration error" in captured.err
+
+
+def test_stage_exit_code_uses_shared_status() -> None:
+    completed_output = _fake_stage_output(StageStatus.COMPLETED)
+    failed_output = _fake_stage_output(StageStatus.FAILED_EXTERNAL_EXECUTION)
+
+    assert isinstance(completed_output, StageOutput)
+    assert _stage_exit_code(completed_output) == 0
+    assert _stage_exit_code(failed_output) == 1
+
+
+def test_run_stage_json_emits_shared_manifest_mapping(tmp_path: Path, monkeypatch, capsys) -> None:
+    config_path = tmp_path / "config.toml"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+    result = _fake_stage_output()
+    monkeypatch.setattr("cities_reconstruction.cli.city_models.run", lambda _config: result)
+
+    exit_code = main(["run-stage", "--config", str(config_path), "city-models", "--json"])
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == result.to_dict()
 
 
 def test_run_stage_translates_stage_config_error(
@@ -109,11 +202,19 @@ def test_config_argument_is_required(capsys) -> None:
     assert "--config" in captured.err
 
 
-def test_run_stage_shapefiles_with_cached_overpass_json(tmp_path: Path, capsys) -> None:
+def test_run_stage_shapefiles_with_cached_overpass_json(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "config.toml"
     raw_path = tmp_path / "overpass.json"
     write_complete_config(config_path, output_root=tmp_path / "outputs", name="CLI Fixture")
     raw_path.write_text('{"elements": []}', encoding="utf-8")
+    captured_paths: list[Path | None] = []
+    result = _fake_stage_output()
+
+    def fake_run(_config, overpass_json_path=None):
+        captured_paths.append(overpass_json_path)
+        return result
+
+    monkeypatch.setattr("cities_reconstruction.cli.shapefiles.run", fake_run)
 
     exit_code = main(
         [
@@ -123,13 +224,14 @@ def test_run_stage_shapefiles_with_cached_overpass_json(tmp_path: Path, capsys) 
             "shapefiles",
             "--overpass-json",
             str(raw_path),
+            "--json",
         ]
     )
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "Feature Retrieval Report" in captured.out
-    assert "Accepted features" in captured.out
+    assert captured_paths == [raw_path]
+    assert json.loads(captured.out) == result.to_dict()
 
 
 def test_run_stage_shapefiles_accepts_supplemental_shapefile_overrides(
@@ -145,7 +247,7 @@ def test_run_stage_shapefiles_accepts_supplemental_shapefile_overrides(
 
     def fake_run(config, overpass_json_path=None):
         captured_configs.append(config)
-        return SimpleNamespace(to_dict=lambda: {"status": "ok"})
+        return _fake_stage_output()
 
     monkeypatch.setattr("cities_reconstruction.cli.shapefiles.run", fake_run)
 
@@ -169,7 +271,7 @@ def test_run_stage_shapefiles_accepts_supplemental_shapefile_overrides(
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert '"status": "ok"' in captured.out
+    assert '"status": "completed"' in captured.out
     shapefiles_config = captured_configs[0].shapefiles
     surfaces = {surface.name: surface for surface in shapefiles_config.supplemental}
     assert surfaces["streets"].path == streets_path
@@ -180,7 +282,7 @@ def test_run_stage_shapefiles_accepts_supplemental_shapefile_overrides(
     assert shapefiles_config.surface_precedence.index("supplemental:streets") < shapefiles_config.surface_precedence.index("roads")
 
 
-def test_run_stage_visual_enrichment_with_segmentation_geojson(tmp_path: Path, capsys) -> None:
+def test_run_stage_visual_enrichment_with_segmentation_geojson(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "config.toml"
     output_root = tmp_path / "outputs"
     stage1_dir = output_root / "01_shapefiles"
@@ -204,6 +306,15 @@ def test_run_stage_visual_enrichment_with_segmentation_geojson(tmp_path: Path, c
         encoding="utf-8",
     )
     write_complete_config(config_path, output_root=output_root, name="CLI Visual Fixture")
+    captured_paths: dict[str, Path] = {}
+    result = _fake_stage_output(metrics={"candidate_count": 0, "sat2lod2_feature_count": 0})
+
+    def fake_run(config, *, segmentation_geojson_path, sat2lod2_geojson_path):
+        captured_paths["segmentation"] = segmentation_geojson_path
+        captured_paths["sat2lod2"] = sat2lod2_geojson_path
+        return result
+
+    monkeypatch.setattr("cities_reconstruction.cli.visual_enrichment.run", fake_run)
 
     exit_code = main(
         [
@@ -221,40 +332,28 @@ def test_run_stage_visual_enrichment_with_segmentation_geojson(tmp_path: Path, c
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert '"candidate_count": 0' in captured.out
-    assert '"sat2lod2_feature_count": 0' in captured.out
-    assert "segmentation_diagnostics_path" in captured.out
+    assert captured_paths == {"segmentation": segmentation_path, "sat2lod2": sat2lod2_path}
+    assert json.loads(captured.out) == result.to_dict()
 
 
-def test_run_stage_point_cloud_accepts_tree_overlay_argument(tmp_path: Path, capsys) -> None:
+def test_run_stage_point_cloud_accepts_tree_overlay_argument(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "config.toml"
     output_root = tmp_path / "outputs"
-    dtm_dir = tmp_path / "dtm"
-    dsm_dir = tmp_path / "dsm"
     overlay_path = tmp_path / "tree_overlay.png"
-    dtm_dir.mkdir()
-    dsm_dir.mkdir()
-    center_lon = 11.2558
-    center_lat = 43.7696
-    center_x, center_y = point_cloud._lonlat_to_epsg25832(center_lon, center_lat)
-    _write_grid(dtm_dir / "tile.ASC", center_x, center_y, elevated=False)
-    _write_roof_with_tree_peak_grid(dsm_dir / "tile.ASC", center_x, center_y)
-    _write_buildings(output_root / "01_shapefiles" / "buildings.geojson", center_lon, center_lat)
-    _write_trees(output_root / "01_shapefiles" / "trees.geojson", center_lon, center_lat)
     _write_png(overlay_path, width=5, height=5, rgba=(10, 160, 35, 255))
     write_complete_config(
         config_path,
         output_root=output_root,
         name="CLI Point Cloud Fixture",
-        center_lat=center_lat,
-        center_lon=center_lon,
-        inner_diameter_m=12.0,
-        outer_diameter_m=16.0,
-        input_lines=(
-            f'dtm_directory = "{dtm_dir.as_posix()}"',
-            f'dsm_directory = "{dsm_dir.as_posix()}"',
-        ),
     )
+    captured_configs: list[object] = []
+    result = _fake_stage_output(metrics={"tree_point_count": 1})
+
+    def fake_run(config, *, building_footprints_path=None):
+        captured_configs.append(config)
+        return result
+
+    monkeypatch.setattr(point_cloud, "run", fake_run)
 
     exit_code = main(
         [
@@ -270,9 +369,8 @@ def test_run_stage_point_cloud_accepts_tree_overlay_argument(tmp_path: Path, cap
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    payload = json.loads(captured.out)
-    assert payload["tree_point_count"] > 0
-    assert payload["tree_points_path"].endswith("tree_points.ply")
+    assert captured_configs[0].inputs.tree_canopy_overlay_path == overlay_path
+    assert json.loads(captured.out) == result.to_dict()
 
 
 def test_run_stage_point_cloud_resolves_explicit_footprints_from_config_directory(
@@ -292,7 +390,7 @@ def test_run_stage_point_cloud_resolves_explicit_footprints_from_config_director
 
     def fake_run(config, *, building_footprints_path=None):
         captured_paths.append(building_footprints_path)
-        return SimpleNamespace(to_dict=lambda: {"status": "ok"})
+        return _fake_stage_output()
 
     monkeypatch.setattr(point_cloud, "run", fake_run)
 
@@ -310,7 +408,7 @@ def test_run_stage_point_cloud_resolves_explicit_footprints_from_config_director
 
     assert exit_code == 0
     assert captured_paths == [override_path.resolve()]
-    assert '"status": "ok"' in capsys.readouterr().out
+    assert '"status": "completed"' in capsys.readouterr().out
 
 
 def test_rejects_building_footprint_override_for_unrelated_stage(tmp_path: Path, capsys) -> None:
@@ -334,34 +432,17 @@ def test_rejects_building_footprint_override_for_unrelated_stage(tmp_path: Path,
     assert "valid only for the point-cloud stage" in capsys.readouterr().err
 
 
-def test_run_stage_trees_json(tmp_path: Path, capsys) -> None:
+def test_run_stage_trees_json(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "config.toml"
-    output_root = tmp_path / "outputs"
-    stage1_dir = output_root / "01_shapefiles"
-    stage1_dir.mkdir(parents=True)
-    (stage1_dir / "trees.geojson").write_text(
-        json.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "geometry": {"type": "Point", "coordinates": [11.2558, 43.7696]},
-                        "properties": {"category": "trees", "tags": {"natural": "tree", "species": "Tilia"}},
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    write_complete_config(config_path, output_root=output_root, name="CLI Trees Fixture")
+    write_complete_config(config_path, output_root=tmp_path / "outputs", name="CLI Trees Fixture")
+    result = _fake_stage_output(metrics={"tree_count": 1})
+    monkeypatch.setattr("cities_reconstruction.cli.trees.run", lambda _config: result)
 
     exit_code = main(["run-stage", "--config", str(config_path), "trees", "--json"])
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert '"tree_count": 1' in captured.out
-    assert "tree_models_manifest.json" in captured.out
+    assert json.loads(captured.out) == result.to_dict()
 
 
 def test_run_stage_trees_accepts_terrain_geometry_override(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -373,7 +454,7 @@ def test_run_stage_trees_accepts_terrain_geometry_override(tmp_path: Path, monke
 
     def fake_run(config):
         captured_configs.append(config)
-        return SimpleNamespace(to_dict=lambda: {"status": "ok"})
+        return _fake_stage_output()
 
     monkeypatch.setattr("cities_reconstruction.cli.trees.run", fake_run)
 
@@ -391,7 +472,7 @@ def test_run_stage_trees_accepts_terrain_geometry_override(tmp_path: Path, monke
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert '"status": "ok"' in captured.out
+    assert '"status": "completed"' in captured.out
     assert captured_configs[0].inputs.tree_terrain_geometry_path == terrain_path
 
 
@@ -406,7 +487,7 @@ def test_cli_air_purifier_path_overrides_are_config_relative(
 
     def fake_run(config, **kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(to_dict=lambda: {"status": "ok"})
+        return _fake_stage_output()
 
     monkeypatch.setattr(air_purifiers, "run", fake_run)
 
@@ -429,7 +510,7 @@ def test_cli_air_purifier_path_overrides_are_config_relative(
         "model_library_path": tmp_path / "assets/parameters.json",
         "terrain_geometry_path": tmp_path / "outputs/terrain.obj",
     }
-    assert '"status": "ok"' in capsys.readouterr().out
+    assert '"status": "completed"' in capsys.readouterr().out
 
 
 def test_cli_air_purifiers_uses_config_paths_when_overrides_are_absent(
@@ -453,7 +534,7 @@ terrain_geometry_path = "outputs/configured.obj"
         captured["configured_model_library"] = config.air_purifiers.model_library_path
         captured["configured_terrain_geometry"] = config.air_purifiers.terrain_geometry_path
         captured.update(kwargs)
-        return SimpleNamespace(to_dict=lambda: {"status": "ok"})
+        return _fake_stage_output()
 
     monkeypatch.setattr(air_purifiers, "run", fake_run)
 
@@ -468,7 +549,7 @@ terrain_geometry_path = "outputs/configured.obj"
         "model_library_path": None,
         "terrain_geometry_path": None,
     }
-    assert '"status": "ok"' in capsys.readouterr().out
+    assert '"status": "completed"' in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -536,7 +617,7 @@ def test_run_stage_city_models_accepts_argument_overrides(tmp_path: Path, monkey
 
     def fake_run(config):
         captured_configs.append(config)
-        return SimpleNamespace(to_dict=lambda: {"status": "ok"})
+        return _fake_stage_output()
 
     monkeypatch.setattr("cities_reconstruction.cli.city_models.run", fake_run)
 
@@ -562,7 +643,7 @@ def test_run_stage_city_models_accepts_argument_overrides(tmp_path: Path, monkey
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert '"status": "ok"' in captured.out
+    assert '"status": "completed"' in captured.out
     config = captured_configs[0]
     assert config.city_models.top_height == 410.0
     assert config.city_models.flow_direction == (4.0, 5.0)
@@ -578,16 +659,13 @@ def test_run_stage_city_models_returns_one_after_printing_external_failure(
 ) -> None:
     config_path = tmp_path / "config.toml"
     write_complete_config(config_path, output_root=tmp_path / "outputs")
-    result = SimpleNamespace(
-        stage_status="failed_external_execution",
-        to_dict=lambda: {"stage_status": "failed_external_execution", "return_code": 17},
-    )
+    result = _fake_stage_output(StageStatus.FAILED_EXTERNAL_EXECUTION)
     monkeypatch.setattr("cities_reconstruction.cli.city_models.run", lambda _config: result)
 
     exit_code = main(["run-stage", "--config", str(config_path), "city-models", "--json"])
 
     assert exit_code == 1
-    assert '"stage_status": "failed_external_execution"' in capsys.readouterr().out
+    assert '"status": "failed_external_execution"' in capsys.readouterr().out
 
 
 def test_city_models_toml_and_cli_validation_have_identical_errors_and_do_not_run_stage(
@@ -658,106 +736,6 @@ def test_city_models_cli_rejects_non_finite_override_before_stage(tmp_path: Path
 
     assert exit_code == 2
     assert "city_models.top_height must be finite" in capsys.readouterr().err
-
-
-def _write_grid(path: Path, center_x: float, center_y: float, elevated: bool) -> None:
-    values = []
-    for row in range(5):
-        row_values = []
-        for col in range(5):
-            is_center = 1 <= row <= 3 and 1 <= col <= 3
-            row_values.append("15" if elevated and is_center else "10")
-        values.append(" ".join(row_values))
-    path.write_text(
-        "\n".join(
-            [
-                "ncols 5",
-                "nrows 5",
-                f"xllcorner {center_x - 5}",
-                f"yllcorner {center_y - 5}",
-                "cellsize 2",
-                "NODATA_value -9999",
-                *values,
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-
-def _write_roof_with_tree_peak_grid(path: Path, center_x: float, center_y: float) -> None:
-    rows = []
-    for row in range(5):
-        row_values = []
-        for col in range(5):
-            row_values.append("20" if row == 2 and col == 2 else "15")
-        rows.append(" ".join(row_values))
-    path.write_text(
-        "\n".join(
-            [
-                "ncols 5",
-                "nrows 5",
-                f"xllcorner {center_x - 5}",
-                f"yllcorner {center_y - 5}",
-                "cellsize 2",
-                "NODATA_value -9999",
-                *rows,
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-
-def _write_buildings(path: Path, center_lon: float, center_lat: float) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    ring = [
-        [center_lon + 0.000025, center_lat - 0.00003],
-        [center_lon + 0.00008, center_lat - 0.00003],
-        [center_lon + 0.00008, center_lat + 0.00003],
-        [center_lon + 0.000025, center_lat + 0.00003],
-        [center_lon + 0.000025, center_lat - 0.00003],
-    ]
-    path.write_text(
-        json.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "geometry": {"type": "Polygon", "coordinates": [ring]},
-                        "properties": {
-                            "category": "buildings",
-                            "contributes_to_geometry": True,
-                            "include_in_building_lod22_reconstruction": True,
-                            "building_base_height_m": 0.0,
-                            "tags": {"building": "yes"},
-                        },
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-
-def _write_trees(path: Path, center_lon: float, center_lat: float) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "geometry": {"type": "Point", "coordinates": [center_lon, center_lat]},
-                        "properties": {"category": "trees", "tags": {"natural": "tree"}},
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
 
 
 def _write_png(path: Path, width: int, height: int, rgba: tuple[int, int, int, int]) -> None:

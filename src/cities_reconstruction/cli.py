@@ -8,7 +8,6 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Protocol
 
 from .config import (
     AppConfig,
@@ -18,22 +17,11 @@ from .config import (
     validate_config,
 )
 from .pipeline import EXECUTABLE_STAGE_NAMES, STAGE_NAMES, dry_run
+from .stage_contract import StageOutput, StageStatus
 from .stage_result import StageResult
 from .stages import air_purifiers, city_models, point_cloud, shapefiles, trees, visual_enrichment
 
-
-class StageExecutionOutput(Protocol):
-    """Common CLI-facing behavior of executable stage results."""
-
-    @property
-    def report_path(self) -> Path:
-        """Path to the human-readable stage report."""
-
-    def to_dict(self) -> dict[str, object]:
-        """Return a JSON-serializable stage summary."""
-
-
-RunStageHandler = Callable[[AppConfig, argparse.Namespace], StageExecutionOutput]
+RunStageHandler = Callable[[AppConfig, argparse.Namespace], StageOutput]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -226,7 +214,7 @@ def _add_config_argument(parser: argparse.ArgumentParser) -> None:
 def _run_shapefiles(
     config: AppConfig,
     args: argparse.Namespace,
-) -> StageExecutionOutput:
+) -> StageOutput:
     config = _apply_shapefile_input_overrides(config, args)
     return shapefiles.run(config, overpass_json_path=args.overpass_json)
 
@@ -234,7 +222,7 @@ def _run_shapefiles(
 def _run_visual_enrichment(
     config: AppConfig,
     args: argparse.Namespace,
-) -> StageExecutionOutput:
+) -> StageOutput:
     return visual_enrichment.run(
         config,
         segmentation_geojson_path=args.segmentation_geojson,
@@ -245,7 +233,7 @@ def _run_visual_enrichment(
 def _run_point_cloud(
     config: AppConfig,
     args: argparse.Namespace,
-) -> StageExecutionOutput:
+) -> StageOutput:
     if args.tree_canopy_overlay is not None:
         config = replace(
             config,
@@ -271,14 +259,14 @@ def _run_point_cloud(
 def _run_city_models(
     config: AppConfig,
     args: argparse.Namespace,
-) -> StageExecutionOutput:
+) -> StageOutput:
     return city_models.run(_apply_city_models_overrides(config, args))
 
 
 def _run_trees(
     config: AppConfig,
     args: argparse.Namespace,
-) -> StageExecutionOutput:
+) -> StageOutput:
     if args.tree_terrain_geometry is not None:
         terrain_geometry_path = args.tree_terrain_geometry
         if not terrain_geometry_path.is_absolute():
@@ -298,7 +286,7 @@ def _run_trees(
 def _run_air_purifiers(
     config: AppConfig,
     args: argparse.Namespace,
-) -> StageExecutionOutput:
+) -> StageOutput:
     return air_purifiers.run(
         config,
         model_library_path=_resolve_config_relative_path(config, args.model_library),
@@ -326,7 +314,7 @@ RUN_STAGE_HANDLERS: dict[str, RunStageHandler] = dict(
 
 
 def _emit_stage_result(
-    result: StageExecutionOutput,
+    result: StageOutput,
     *,
     as_json: bool,
 ) -> None:
@@ -336,13 +324,8 @@ def _emit_stage_result(
         print(result.report_path.read_text(encoding="utf-8").rstrip())
 
 
-def _stage_exit_code(result: StageExecutionOutput) -> int:
-    return (
-        1
-        if getattr(result, "stage_status", "completed")
-        == "failed_external_execution"
-        else 0
-    )
+def _stage_exit_code(result: StageOutput) -> int:
+    return 0 if result.status is StageStatus.COMPLETED else 1
 
 
 def _resolve_config_relative_path(

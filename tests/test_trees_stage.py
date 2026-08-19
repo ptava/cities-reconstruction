@@ -11,12 +11,23 @@ from cities_reconstruction.geometry.terrain import (
     load_terrain_sampler,
     validate_completed_city_models_terrain,
 )
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    ArtifactReference,
+    StageOutput,
+    StageStatus,
+    publish_stage_manifest,
+)
 from cities_reconstruction.stages import trees
 from tests.config_helpers import write_complete_config
+from tests.stage_manifest_helpers import publish_test_stage_manifest
 
 
 def test_generates_parametric_tree_stls_and_manifest(tmp_path: Path) -> None:
     config_path = _prepare_tree_fixture(tmp_path)
+    legacy_manifest = tmp_path / "outputs/04_trees/tree_models_manifest.json"
+    legacy_manifest.parent.mkdir(parents=True)
+    legacy_manifest.write_text('{"legacy": true}', encoding="utf-8")
 
     result = trees.run(load_config(config_path))
 
@@ -57,23 +68,41 @@ def test_generates_parametric_tree_stls_and_manifest(tmp_path: Path) -> None:
     assert fallback["model_source"] == "default:Tilia:species_category_mapping"
     assert "species_model" in fallback["defaulted_fields"]
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["status"] == "parametric_tree_models_generated"
-    assert manifest["tree_count"] == 4
-    assert manifest["surface_frame"]["name"] == "city4cfd_local_origin"
-    assert manifest["information_summary"]["trees_with_any_model_input_tags_or_allometry"] == 3
-    assert manifest["information_summary"]["trees_with_species_tag_model"] == 3
-    assert manifest["information_summary"]["trees_with_fallback_species_model"] == 1
-    assert manifest["information_summary"]["fallback_model_count"] == 1
+    assert result.manifest_path == result.output_directory / "manifest.json"
+    assert not legacy_manifest.exists()
+    assert isinstance(result, StageOutput)
+    assert result.to_dict() == manifest
+    assert manifest["schema_version"] == 2
+    assert manifest["stage"] == "trees"
+    assert manifest["status"] == "completed"
+    assert manifest["metrics"]["tree_count"] == 4
+    assert manifest["metrics"]["species_counts"] == {"Celtis australis": 1, "Citrus spp.": 1, "Tilia": 2}
+    assert manifest["details"]["surface_frame"]["name"] == "city4cfd_local_origin"
+    information = manifest["details"]["information_summary"]
+    assert information["trees_with_any_model_input_tags_or_allometry"] == 3
+    assert information["trees_with_species_tag_model"] == 3
+    assert information["trees_with_fallback_species_model"] == 1
+    assert information["fallback_model_count"] == 1
     assert (
-        manifest["information_summary"]["trees_with_species_tag_model"]
-        + manifest["information_summary"]["trees_with_fallback_species_model"]
-        == manifest["tree_count"]
+        information["trees_with_species_tag_model"]
+        + information["trees_with_fallback_species_model"]
+        == manifest["metrics"]["tree_count"]
     )
-    assert manifest["fallback"]["default_species"] == "Tilia"
-    assert manifest["fallback"]["tree_count"] == 1
-    assert manifest["surfaces"]["species_crowns"]["Citrus spp."].endswith("citrus_spp_crowns.stl")
-    assert manifest["tree_information"][2]["model_source"] == "tag:species:species_category_mapping"
-    assert manifest["tree_information"][3]["model_source"] == "default:Tilia:species_category_mapping"
+    assert manifest["details"]["fallback"]["default_species"] == "Tilia"
+    assert manifest["details"]["fallback"]["tree_count"] == 1
+    assert manifest["details"]["surfaces"]["species_crowns"]["Citrus spp."].endswith("citrus_spp_crowns.stl")
+    assert manifest["details"]["tree_information"][2]["model_source"] == "tag:species:species_category_mapping"
+    assert manifest["details"]["tree_information"][3]["model_source"] == "default:Tilia:species_category_mapping"
+    artifacts = {artifact["name"]: artifact for artifact in manifest["artifacts"]}
+    assert artifacts["trees-combined-surface"] == {
+        "name": "trees-combined-surface", "path": str(result.combined_stl_path), "kind": "handoff", "required": True,
+    }
+    assert artifacts["tree-trunks-surface"]["kind"] == ArtifactKind.HANDOFF
+    assert artifacts["tree-crowns-surface"]["kind"] == ArtifactKind.HANDOFF
+    assert artifacts["tree-placements"]["kind"] == ArtifactKind.SUPPORTING
+    assert artifacts["species-library"]["kind"] == ArtifactKind.SUPPORTING
+    assert any(name.startswith("species-crown-") for name in artifacts)
+    assert all(artifact["required"] is True for artifact in artifacts.values())
     preview = result.preview_path.read_text(encoding="utf-8")
     assert "<canvas" in preview
     assert "parametric tree models" in preview
@@ -157,9 +186,59 @@ def test_tree_stage_uses_species_category_mapping_and_library(tmp_path: Path) ->
     assert citrus["crown_shape"] == "rounded"
     assert citrus["model_source"] == "tag:species:species_category_mapping"
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["category_counts"]["large_round_broadleaf"] == 3
-    assert manifest["category_counts"]["small_round_broadleaf"] == 1
-    assert manifest["species_counts"]["Citrus spp."] == 1
+    assert manifest["metrics"]["category_counts"]["large_round_broadleaf"] == 3
+    assert manifest["metrics"]["category_counts"]["small_round_broadleaf"] == 1
+    assert manifest["metrics"]["species_counts"]["Citrus spp."] == 1
+
+
+def test_species_slug_collisions_produce_unique_deterministic_crown_handoffs(
+    tmp_path: Path,
+) -> None:
+    mapping_path = tmp_path / "species_category_mapping.json"
+    mapping_path.write_text(
+        json.dumps(
+            {
+                "species_to_category": {
+                    "A b": "large_round_broadleaf",
+                    "A-b": "large_round_broadleaf",
+                    "Tilia": "large_round_broadleaf",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = _prepare_tree_fixture(tmp_path, category_mapping_path=mapping_path)
+    features = [
+        _tree_feature(11.2558, 43.7696, {"species": "A b"}, osm_id=1),
+        _tree_feature(11.2559, 43.7697, {"species": "A-b"}, osm_id=2),
+    ]
+    _write_tree_features(tmp_path, features)
+
+    first_result = trees.run(load_config(config_path))
+    first_manifest = json.loads(first_result.manifest_path.read_text(encoding="utf-8"))
+    first_paths = {
+        species: Path(path).name
+        for species, path in first_manifest["details"]["surfaces"]["species_crowns"].items()
+    }
+    first_artifact_names = [
+        artifact["name"]
+        for artifact in first_manifest["artifacts"]
+        if artifact["name"].startswith("species-crown-")
+    ]
+
+    assert len(set(first_paths.values())) == 2
+    assert "a_b_crowns.stl" in first_paths.values()
+    assert len(first_artifact_names) == len(set(first_artifact_names)) == 2
+
+    _write_tree_features(tmp_path, list(reversed(features)))
+    second_result = trees.run(load_config(config_path))
+    second_manifest = json.loads(second_result.manifest_path.read_text(encoding="utf-8"))
+    second_paths = {
+        species: Path(path).name
+        for species, path in second_manifest["details"]["surfaces"]["species_crowns"].items()
+    }
+
+    assert second_paths == first_paths
 
 
 def test_planned_tree_uses_direct_model_and_partial_dimension_overrides(tmp_path: Path) -> None:
@@ -195,7 +274,7 @@ def test_planned_tree_uses_direct_model_and_partial_dimension_overrides(tmp_path
     assert placement["crown_radius_source"] == "urban_planning:crown_diameter_m"
     assert placement["trunk_radius_source"] == "default:small_round_broadleaf.trunk_radius_m"
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    information = manifest["information_summary"]
+    information = manifest["details"]["information_summary"]
     assert information["trees_with_direct_planning_model"] == 1
     assert information["trees_with_any_model_input_tags_or_allometry"] == 1
     assert information["planning_value_counts"] == {
@@ -306,10 +385,10 @@ def test_non_planned_tree_ignores_planning_dimension_properties(tmp_path: Path) 
     assert placement["model_source"] == "tag:species:species_category_mapping"
 
 
-def test_tree_stage_rejects_missing_stage1_tree_file(tmp_path: Path) -> None:
+def test_tree_stage_rejects_missing_stage1_manifest(tmp_path: Path) -> None:
     config_path = _write_config(tmp_path)
 
-    with pytest.raises(ConfigError, match="missing tree GeoJSON"):
+    with pytest.raises(ConfigError, match="01_shapefiles/manifest.json"):
         trees.run(load_config(config_path))
 
 
@@ -353,25 +432,114 @@ def test_projects_tree_bases_onto_supplied_terrain_geometry(tmp_path: Path) -> N
     combined_vertices = _stl_vertices(result.combined_stl_path)
     assert min(vertex[2] for vertex in combined_vertices) == pytest.approx(9.95, abs=1e-3)
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["terrain_geometry_path"] == str(terrain_path)
+    assert manifest["details"]["terrain_geometry_path"] == str(terrain_path)
     report = result.report_path.read_text(encoding="utf-8")
     assert "terrain geometry file is provided" in report
 
 
-def test_rejects_terrain_from_failed_city_models_handoff(tmp_path: Path) -> None:
+def test_manifest_is_published_after_tree_preview_and_report(tmp_path: Path, monkeypatch) -> None:
+    config = load_config(_prepare_tree_fixture(tmp_path))
+    published: list[Path] = []
+    original_publish = trees.publish_stage_manifest
+
+    def observe_publication(**kwargs):
+        assert kwargs["preview_path"].is_file()
+        assert kwargs["report_path"].is_file()
+        published.append(kwargs["output_directory"] / "manifest.json")
+        return original_publish(**kwargs)
+
+    monkeypatch.setattr(trees, "publish_stage_manifest", observe_publication)
+
+    result = trees.run(config)
+
+    assert published == [result.manifest_path]
+
+
+def test_trees_does_not_claim_universal_stage_output_lock(tmp_path: Path) -> None:
+    config_path = _prepare_tree_fixture(tmp_path)
+    output_dir = tmp_path / "outputs" / "04_trees"
+    output_dir.mkdir(parents=True)
+    lock_path = output_dir / ".stage.lock"
+    lock_path.write_text("owned by a future transactional runner\n", encoding="utf-8")
+
+    result = trees.run(load_config(config_path))
+
+    assert result.manifest_path.is_file()
+    assert lock_path.read_text(encoding="utf-8") == "owned by a future transactional runner\n"
+
+
+def test_trees_rejects_wrong_stage_manifest_for_default_tree_handoff(tmp_path: Path) -> None:
+    config_path = _prepare_tree_fixture(tmp_path)
+    stage1_dir = tmp_path / "outputs" / "01_shapefiles"
+    manifest = publish_test_stage_manifest(
+        stage1_dir,
+        stage="visual-enrichment",
+        named_artifacts={"category-trees": (stage1_dir / "trees.geojson", ArtifactKind.HANDOFF)},
+    )
+
+    with pytest.raises(ConfigError, match="expected stage 'shapefiles'") as error:
+        trees.run(load_config(config_path))
+
+    assert str(manifest.manifest_path) in str(error.value)
+
+
+@pytest.mark.parametrize("context", ["tree", "air purifier"])
+def test_rejects_terrain_from_failed_city_models_handoff(tmp_path: Path, context: str) -> None:
     config_path = _prepare_tree_fixture(tmp_path)
     config = load_config(config_path)
     stage_dir = config.output.root_directory / "03_city_models"
     terrain_path = stage_dir / "city4cfd_output" / "Mesh_Terrain_Combined.obj"
     terrain_path.parent.mkdir(parents=True)
     terrain_path.write_text("v 0 0 0\n", encoding="utf-8")
-    (stage_dir / "city4cfd_reconstruction_manifest.json").write_text(
-        json.dumps({"stage_status": "failed_external_execution"}),
-        encoding="utf-8",
+    manifest = publish_stage_manifest(
+        stage="city-models",
+        status=StageStatus.FAILED_EXTERNAL_EXECUTION,
+        output_directory=stage_dir,
+        report_path=stage_dir / "city_models_report.md",
+        preview_path=stage_dir / "city_models_preview.html",
+        input_state_fingerprint={"fixture": "failed-city-models"},
+        artifacts=(),
+        metrics={},
+        details={},
     )
 
-    with pytest.raises(ConfigError, match="unsuccessful City4CFD handoff"):
+    with pytest.raises(ConfigError, match="not completed") as error:
+        validate_completed_city_models_terrain(config, terrain_path, context=context)
+
+    assert str(manifest.manifest_path) in str(error.value)
+
+
+@pytest.mark.parametrize("artifact_kind", [None, ArtifactKind.PREVIEW])
+def test_rejects_unlisted_or_preview_city_models_terrain(
+    tmp_path: Path,
+    artifact_kind: ArtifactKind | None,
+) -> None:
+    config = load_config(_prepare_tree_fixture(tmp_path))
+    stage_dir = config.output.root_directory / "03_city_models"
+    terrain_path = stage_dir / "city4cfd_output" / "Mesh_Terrain_Combined.obj"
+    terrain_path.parent.mkdir(parents=True)
+    terrain_path.write_text("v 0 0 0\n", encoding="utf-8")
+    artifacts = (
+        (ArtifactReference("terrain-preview", terrain_path, artifact_kind),)
+        if artifact_kind is not None
+        else ()
+    )
+    manifest = publish_stage_manifest(
+        stage="city-models",
+        status=StageStatus.COMPLETED,
+        output_directory=stage_dir,
+        report_path=stage_dir / "city_models_report.md",
+        preview_path=stage_dir / "city_models_preview.html",
+        input_state_fingerprint={"fixture": "completed-city-models"},
+        artifacts=artifacts,
+        metrics={},
+        details={},
+    )
+
+    with pytest.raises(ConfigError, match="declared handoff") as error:
         validate_completed_city_models_terrain(config, terrain_path)
+
+    assert str(manifest.manifest_path) in str(error.value)
 
 
 def test_terrain_sampler_uses_nearest_surface_at_internal_mesh_hole(tmp_path: Path) -> None:
@@ -553,6 +721,13 @@ def _prepare_tree_fixture(
             }
         ),
         encoding="utf-8",
+    )
+    publish_test_stage_manifest(
+        stage1_dir,
+        stage="shapefiles",
+        named_artifacts={
+            "category-trees": (stage1_dir / "trees.geojson", ArtifactKind.HANDOFF),
+        },
     )
     return config_path
 

@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import math
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from shapely import STRtree
 from shapely.geometry import MultiPoint, Point, Polygon
 from shapely.ops import nearest_points
 
 from cities_reconstruction.config import AppConfig, ConfigError
-
+from cities_reconstruction.stage_contract import (
+    ArtifactKind,
+    require_completed_manifest,
+    require_manifest_artifact_path,
+)
 
 Point3 = tuple[float, float, float]
 TerrainSampler = Callable[[float, float], float]
@@ -31,22 +34,18 @@ def validate_completed_city_models_terrain(
         path.resolve().relative_to(stage_dir)
     except ValueError:
         return
-    manifest_path = stage_dir / "city4cfd_reconstruction_manifest.json"
+    manifest_path = stage_dir / "manifest.json"
     if not manifest_path.exists():
         raise ConfigError(
             f"configured {context} terrain is a stage-3 artifact but its City4CFD "
             f"manifest is missing: {manifest_path}"
         )
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ConfigError(f"invalid City4CFD manifest: {manifest_path}") from exc
-    stage_status = manifest.get("stage_status") if isinstance(manifest, dict) else None
-    if stage_status != "completed":
-        raise ConfigError(
-            f"configured {context} terrain comes from an unsuccessful City4CFD handoff "
-            f"(stage_status={stage_status!r}): {manifest_path}"
-        )
+    manifest = require_completed_manifest(manifest_path, expected_stage="city-models")
+    require_manifest_artifact_path(
+        manifest,
+        path=path,
+        kind=ArtifactKind.HANDOFF,
+    )
 
 
 def load_terrain_sampler(path: Path, *, footprint_label: str = "tree footprint") -> TerrainSampler:
@@ -151,7 +150,7 @@ def _read_obj_mesh_triangles(path: Path) -> list[tuple[Point3, Point3, Point3]]:
             if len(face_indices) < 3:
                 continue
             anchor = vertices[face_indices[0]]
-            for left, right in zip(face_indices[1:], face_indices[2:]):
+            for left, right in zip(face_indices[1:], face_indices[2:], strict=False):
                 triangles.append((anchor, vertices[left], vertices[right]))
     return triangles
 
