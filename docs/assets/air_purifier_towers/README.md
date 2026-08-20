@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This folder contains two compact, generic base air-purifier tower models for city-scale CFD geometry and OpenFOAM surface-region preparation. They are intentionally simple external envelopes, not manufacturer-specific purifier designs. These source assets remain in model-local coordinates; the application writes scaled and city-aligned copies under `05_air_purifiers`.
+This folder contains two compact, generic base air-purifier tower models for city-scale CFD geometry and OpenFOAM surface-region preparation. They are intentionally simple external envelopes, not manufacturer-specific purifier designs. These source assets remain in model-local coordinates; the application writes scaled and city-aligned copies under `06_air_purifiers`.
 
 Both models use metres, stand on `z = 0`, are 4 m tall by default, and fit inside a 1.5 m by 1.5 m footprint. The authoritative dimensions are in `parameters.json`.
 
@@ -70,7 +70,7 @@ Open [air_purifier_towers_preview.html](air_purifier_towers_preview.html) locall
 
 Drag a model to orbit, use the mouse wheel to zoom, or select **Reset view**. Check that the octagonal inlet is continuous, the four-side tower has one inlet on each side, and the outlet surfaces face upward.
 
-This preview verifies the two unplaced base models. After placement, inspect `<output.root_directory>/05_air_purifiers/air_purifier_models_preview.html`; that separate preview is centred on the generated city instances and renders the exact transformed triangles written to the placed STL files.
+This preview verifies the two unplaced base models. After placement, inspect `<output.root_directory>/06_air_purifiers/air_purifier_models_preview.html`; that separate preview is centred on the generated city instances and renders the exact transformed triangles written to the placed STL files.
 
 ## Placement workflow
 
@@ -103,7 +103,7 @@ uv run cities-reconstruction run-stage --config path/to/config.toml air-purifier
 
 `--model-library` and `--terrain-geometry` override the corresponding optional `[air_purifiers]` keys and resolve relative to the selected TOML file. A model catalog is required at execution; unresolved terrain is allowed and produces an explicit `z=0` fallback.
 
-Placed-city outputs are written under `<output.root_directory>/05_air_purifiers`:
+Placed-city outputs are written under `<output.root_directory>/06_air_purifiers`:
 
 - `surfaces/air_purifiers_combined.stl`: every instance aggregated into exact non-empty `inlet`, `outlet`, and `tower` solids
 - `surfaces/instances/<PURIF_ID>.stl`: one transformed three-region STL per safe ID

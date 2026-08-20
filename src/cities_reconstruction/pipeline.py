@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from . import stage_runtime
 from .config import AppConfig, ConfigError
+from .stage_layout import STAGE_LAYOUT_BY_ID, StageId, StageLayout
 from .stage_result import StageResult
 from .stage_runtime import StageRunner
 from .stages import air_purifiers, city_models, openfoam, point_cloud, shapefiles, trees, visual_enrichment
@@ -30,7 +31,7 @@ class StageInputSpec:
 
     name: str
     required: bool
-    default_producer: str | None = None
+    default_producer: StageId | None = None
     override: str | None = None
 
 
@@ -38,15 +39,37 @@ class StageInputSpec:
 class StageSpec:
     """Authoritative metadata for one pipeline stage."""
 
-    name: str
-    order: int
+    stage_id: StageId
     maturity: StageMaturity
-    output_directory: str
     planner: StagePlanner
     runner: StageRunner | None
     manifest_filename: str | None = None
-    hard_dependencies: tuple[str, ...] = ()
+    hard_dependencies: tuple[StageId, ...] = ()
     inputs: tuple[StageInputSpec, ...] = ()
+
+    @property
+    def layout(self) -> StageLayout:
+        """Return dependency-neutral layout metadata for this stage."""
+
+        return STAGE_LAYOUT_BY_ID[self.stage_id]
+
+    @property
+    def name(self) -> str:
+        """Return the stable CLI and manifest stage name."""
+
+        return self.stage_id.value
+
+    @property
+    def number(self) -> int:
+        """Return the stage's current presentation number."""
+
+        return self.layout.number
+
+    @property
+    def number_name(self) -> str:
+        """Return the derived numbered output-directory name."""
+
+        return self.layout.number_name
 
     @property
     def executable(self) -> bool:
@@ -65,10 +88,8 @@ class StageSpec:
 
 STAGE_SPECS = (
     StageSpec(
-        name="shapefiles",
-        order=1,
+        stage_id=StageId.SHAPEFILES,
         maturity=StageMaturity.IMPLEMENTED,
-        output_directory="01_shapefiles",
         planner=shapefiles.plan,
         runner=stage_runtime.run_shapefiles,
         manifest_filename="manifest.json",
@@ -77,25 +98,21 @@ STAGE_SPECS = (
         ),
     ),
     StageSpec(
-        name="visual-enrichment",
-        order=2,
+        stage_id=StageId.VISUAL_ENRICHMENT,
         maturity=StageMaturity.REVIEW_ONLY,
-        output_directory="02_visual_enrichment",
         planner=visual_enrichment.plan,
         runner=stage_runtime.run_visual_enrichment,
         manifest_filename="manifest.json",
-        hard_dependencies=("shapefiles",),
+        hard_dependencies=(StageId.SHAPEFILES,),
         inputs=(
-            StageInputSpec("stage-1-features", required=True, default_producer="shapefiles"),
+            StageInputSpec("stage-1-features", required=True, default_producer=StageId.SHAPEFILES),
             StageInputSpec("segmentation-polygons", required=False, override="--segmentation-geojson"),
             StageInputSpec("sat2lod2-polygons", required=False, override="--sat2lod2-geojson"),
         ),
     ),
     StageSpec(
-        name="point-cloud",
-        order=3,
+        stage_id=StageId.POINT_CLOUD,
         maturity=StageMaturity.IMPLEMENTED,
-        output_directory="02_point_cloud",
         planner=point_cloud.plan,
         runner=stage_runtime.run_point_cloud,
         manifest_filename="manifest.json",
@@ -105,7 +122,7 @@ STAGE_SPECS = (
             StageInputSpec(
                 "building-footprints",
                 required=True,
-                default_producer="shapefiles",
+                default_producer=StageId.SHAPEFILES,
                 override="--building-footprints-geojson",
             ),
             StageInputSpec(
@@ -116,62 +133,54 @@ STAGE_SPECS = (
             StageInputSpec(
                 "stage-1-tree-points",
                 required=False,
-                default_producer="shapefiles",
+                default_producer=StageId.SHAPEFILES,
             ),
         ),
     ),
     StageSpec(
-        name="city-models",
-        order=4,
+        stage_id=StageId.CITY_MODELS,
         maturity=StageMaturity.IMPLEMENTED,
-        output_directory="03_city_models",
         planner=city_models.plan,
         runner=stage_runtime.run_city_models,
         manifest_filename="manifest.json",
-        hard_dependencies=("shapefiles", "point-cloud"),
+        hard_dependencies=(StageId.SHAPEFILES, StageId.POINT_CLOUD),
         inputs=(
-            StageInputSpec("stage-1-surfaces", required=True, default_producer="shapefiles"),
-            StageInputSpec("point-cloud-manifest", required=True, default_producer="point-cloud"),
+            StageInputSpec("stage-1-surfaces", required=True, default_producer=StageId.SHAPEFILES),
+            StageInputSpec("point-cloud-manifest", required=True, default_producer=StageId.POINT_CLOUD),
         ),
     ),
     StageSpec(
-        name="trees",
-        order=5,
+        stage_id=StageId.TREES,
         maturity=StageMaturity.INCOMPLETE,
-        output_directory="04_trees",
         planner=trees.plan,
         runner=stage_runtime.run_trees,
         manifest_filename="manifest.json",
-        hard_dependencies=("shapefiles",),
+        hard_dependencies=(StageId.SHAPEFILES,),
         inputs=(
-            StageInputSpec("tree-features", required=True, default_producer="shapefiles"),
+            StageInputSpec("tree-features", required=True, default_producer=StageId.SHAPEFILES),
             StageInputSpec("terrain-geometry", required=False, override="--tree-terrain-geometry"),
         ),
     ),
     StageSpec(
-        name="air-purifiers",
-        order=6,
+        stage_id=StageId.AIR_PURIFIERS,
         maturity=StageMaturity.IMPLEMENTED,
-        output_directory="05_air_purifiers",
         planner=air_purifiers.plan,
         runner=stage_runtime.run_air_purifiers,
         manifest_filename="manifest.json",
-        hard_dependencies=("shapefiles",),
+        hard_dependencies=(StageId.SHAPEFILES,),
         inputs=(
-            StageInputSpec("purifier-features", required=True, default_producer="shapefiles"),
+            StageInputSpec("purifier-features", required=True, default_producer=StageId.SHAPEFILES),
             StageInputSpec("model-library", required=True, override="--model-library"),
             StageInputSpec("terrain-geometry", required=False, override="--terrain-geometry"),
         ),
     ),
     StageSpec(
-        name="openfoam",
-        order=7,
+        stage_id=StageId.OPENFOAM,
         maturity=StageMaturity.PLANNED,
-        output_directory="05_openfoam_case",
         planner=openfoam.plan,
         runner=None,
         manifest_filename=None,
-        hard_dependencies=("city-models", "trees", "air-purifiers"),
+        hard_dependencies=(StageId.CITY_MODELS, StageId.TREES, StageId.AIR_PURIFIERS),
     ),
 )
 

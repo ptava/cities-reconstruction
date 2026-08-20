@@ -38,6 +38,7 @@ from cities_reconstruction.stage_contract import (
     invalidate_stage_manifests,
     publish_stage_manifest,
 )
+from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
 from cities_reconstruction.urban_planning import load_inputs as load_urban_planning_inputs
 
@@ -65,6 +66,7 @@ TREE_DBH_ATTRIBUTE_KEYS = (
     "trunk_diameter",
 )
 TREE_CIRCUMFERENCE_ATTRIBUTE_KEYS = ("circumference", "circumference_cm", "circonf", "circonf_cm", "circonferenza", "circonferenza_cm")
+STAGE_ID = StageId.SHAPEFILES
 
 CATEGORIES = (
     "buildings",
@@ -206,7 +208,7 @@ class ShapefilesStageOutput:
 
 def plan(config: AppConfig) -> StageResult:
     region = config.region
-    output = config.output.root_directory / "01_shapefiles"
+    output = stage_output_directory(config.output.root_directory, STAGE_ID)
     region_actions: tuple[str, ...]
     if region.inner_diameter_m is None:
         region_actions = (
@@ -220,7 +222,7 @@ def plan(config: AppConfig) -> StageResult:
             "Write separate inner-region and annular-region GeoJSON outputs.",
         )
     return StageResult(
-        stage="shapefiles",
+        stage=STAGE_ID.value,
         summary="Plan Overpass/GIS feature retrieval and clipping.",
         planned_actions=(
             f"Query {config.inputs.overpass_url} around {region.center_lat:g}, {region.center_lon:g}.",
@@ -238,7 +240,7 @@ def plan(config: AppConfig) -> StageResult:
 def run(config: AppConfig, overpass_json_path: Path | None = None) -> ShapefilesStageOutput:
     """Execute the first pipeline stage and write retrieved feature artifacts."""
 
-    output_dir = config.output.root_directory / "01_shapefiles"
+    output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     output_dir.mkdir(parents=True, exist_ok=True)
     invalidate_stage_manifests(output_dir)
     overpass_json_path = overpass_json_path.resolve() if overpass_json_path is not None else None
@@ -453,7 +455,7 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
         ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
     )
     manifest = publish_stage_manifest(
-        stage="shapefiles",
+        stage=STAGE_ID.value,
         status=StageStatus.COMPLETED,
         output_directory=output_dir,
         report_path=report_path,
@@ -503,7 +505,7 @@ def _shapefiles_input_fingerprint(
     """Fingerprint configuration and resolved local sources, never generated outputs."""
 
     paths = [config.path]
-    stage_dir = config.output.root_directory / "01_shapefiles"
+    stage_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     stage_cache_paths = {
         (stage_dir / "overpass_raw.json").resolve(),
         (stage_dir / "tag_inventory_raw.json").resolve(),

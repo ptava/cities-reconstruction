@@ -16,6 +16,7 @@ from cities_reconstruction.stage_contract import (
     require_completed_manifest,
     require_manifest_artifact_path,
 )
+from cities_reconstruction.stage_layout import StageId, stage_output_directory
 
 Point3 = tuple[float, float, float]
 TerrainSampler = Callable[[float, float], float]
@@ -27,9 +28,12 @@ def validate_completed_city_models_terrain(
     *,
     context: str = "tree",
 ) -> None:
-    """Reject a configured stage-3 terrain produced by a failed handoff."""
+    """Reject configured city-models terrain produced by a failed handoff."""
 
-    stage_dir = (config.output.root_directory / "03_city_models").resolve()
+    stage_dir = stage_output_directory(
+        config.output.root_directory,
+        StageId.CITY_MODELS,
+    ).resolve()
     try:
         path.resolve().relative_to(stage_dir)
     except ValueError:
@@ -37,10 +41,13 @@ def validate_completed_city_models_terrain(
     manifest_path = stage_dir / "manifest.json"
     if not manifest_path.exists():
         raise ConfigError(
-            f"configured {context} terrain is a stage-3 artifact but its City4CFD "
+            f"configured {context} terrain is a city-models artifact but its City4CFD "
             f"manifest is missing: {manifest_path}"
         )
-    manifest = require_completed_manifest(manifest_path, expected_stage="city-models")
+    manifest = require_completed_manifest(
+        manifest_path,
+        expected_stage=StageId.CITY_MODELS.value,
+    )
     require_manifest_artifact_path(
         manifest,
         path=path,

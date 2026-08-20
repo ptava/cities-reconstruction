@@ -25,7 +25,7 @@ from tests.stage_manifest_helpers import publish_test_stage_manifest
 
 def test_generates_parametric_tree_stls_and_manifest(tmp_path: Path) -> None:
     config_path = _prepare_tree_fixture(tmp_path)
-    legacy_manifest = tmp_path / "outputs/04_trees/tree_models_manifest.json"
+    legacy_manifest = tmp_path / "outputs/05_trees/tree_models_manifest.json"
     legacy_manifest.parent.mkdir(parents=True)
     legacy_manifest.write_text('{"legacy": true}', encoding="utf-8")
 
@@ -457,7 +457,7 @@ def test_manifest_is_published_after_tree_preview_and_report(tmp_path: Path, mon
 
 def test_trees_does_not_claim_universal_stage_output_lock(tmp_path: Path) -> None:
     config_path = _prepare_tree_fixture(tmp_path)
-    output_dir = tmp_path / "outputs" / "04_trees"
+    output_dir = tmp_path / "outputs" / "05_trees"
     output_dir.mkdir(parents=True)
     lock_path = output_dir / ".stage.lock"
     lock_path.write_text("owned by a future transactional runner\n", encoding="utf-8")
@@ -487,7 +487,7 @@ def test_trees_rejects_wrong_stage_manifest_for_default_tree_handoff(tmp_path: P
 def test_rejects_terrain_from_failed_city_models_handoff(tmp_path: Path, context: str) -> None:
     config_path = _prepare_tree_fixture(tmp_path)
     config = load_config(config_path)
-    stage_dir = config.output.root_directory / "03_city_models"
+    stage_dir = config.output.root_directory / "04_city_models"
     terrain_path = stage_dir / "city4cfd_output" / "Mesh_Terrain_Combined.obj"
     terrain_path.parent.mkdir(parents=True)
     terrain_path.write_text("v 0 0 0\n", encoding="utf-8")
@@ -515,7 +515,7 @@ def test_rejects_unlisted_or_preview_city_models_terrain(
     artifact_kind: ArtifactKind | None,
 ) -> None:
     config = load_config(_prepare_tree_fixture(tmp_path))
-    stage_dir = config.output.root_directory / "03_city_models"
+    stage_dir = config.output.root_directory / "04_city_models"
     terrain_path = stage_dir / "city4cfd_output" / "Mesh_Terrain_Combined.obj"
     terrain_path.parent.mkdir(parents=True)
     terrain_path.write_text("v 0 0 0\n", encoding="utf-8")

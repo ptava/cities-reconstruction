@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from cities_reconstruction.config import AppConfig
+from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
+
+STAGE_ID = StageId.OPENFOAM
 
 
 def plan(config: AppConfig) -> StageResult:
-    output = config.output.root_directory / "05_openfoam_case"
+    output = stage_output_directory(config.output.root_directory, STAGE_ID)
     return StageResult(
-        stage="openfoam",
+        stage=STAGE_ID.value,
         summary="Plan OpenFOAM Foundation v13 mesh-generation inputs.",
         planned_actions=(
             "Collect city and tree STL surfaces.",

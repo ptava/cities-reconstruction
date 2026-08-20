@@ -31,7 +31,7 @@ def test_generates_separate_city4cfd_point_clouds_and_alignment_artifacts(tmp_pa
     dormant_footprints = outputs / "02_visual_enrichment" / "lod22_buildings.geojson"
     dormant_footprints.parent.mkdir(parents=True)
     dormant_footprints.write_text("{}", encoding="utf-8")
-    stale_tree_points = outputs / "02_point_cloud" / "tree_points.ply"
+    stale_tree_points = outputs / "03_point_cloud" / "tree_points.ply"
     stale_tree_points.parent.mkdir(parents=True)
     stale_tree_points.write_text("stale tree cloud\n", encoding="utf-8")
     write_complete_config(
@@ -691,7 +691,7 @@ def test_failed_point_cloud_qa_does_not_publish_manifest(
             f'dsm_directory = "{dsm_dir.as_posix()}"',
         ),
     )
-    stage_dir = output_root / "02_point_cloud"
+    stage_dir = output_root / "03_point_cloud"
     manifest_path = stage_dir / "manifest.json"
     legacy_manifest_path = stage_dir / "city4cfd_point_cloud_manifest.json"
     stage_dir.mkdir(parents=True)
@@ -718,7 +718,7 @@ def test_early_point_cloud_validation_failure_invalidates_old_manifest(
     config_path = tmp_path / "config.toml"
     output_root = tmp_path / "outputs"
     write_complete_config(config_path, output_root=output_root)
-    stage_dir = output_root / "02_point_cloud"
+    stage_dir = output_root / "03_point_cloud"
     manifest_path = stage_dir / "manifest.json"
     legacy_manifest_path = stage_dir / "city4cfd_point_cloud_manifest.json"
     stage_dir.mkdir(parents=True)

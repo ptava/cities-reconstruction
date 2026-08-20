@@ -30,6 +30,7 @@ from cities_reconstruction.stage_contract import (
     require_completed_manifest,
     require_manifest_artifact,
 )
+from cities_reconstruction.stage_layout import STAGE_LAYOUT_BY_ID, StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
 
 EARTH_RADIUS_M = 6_371_000.0
@@ -119,14 +120,19 @@ class VisualEnrichmentStageOutput:
         return self.manifest.to_dict()
 
 
+STAGE_ID = StageId.VISUAL_ENRICHMENT
+STAGE_NUMBER_NAME = STAGE_LAYOUT_BY_ID[STAGE_ID].number_name
+SHAPEFILES_NUMBER_NAME = STAGE_LAYOUT_BY_ID[StageId.SHAPEFILES].number_name
+
+
 def plan(config: AppConfig) -> StageResult:
-    output = config.output.root_directory / "02_visual_enrichment"
+    output = stage_output_directory(config.output.root_directory, STAGE_ID)
     return StageResult(
-        stage="visual-enrichment",
+        stage=STAGE_ID.value,
         summary="Run review-gated segmentation-assisted refinement of OSM features from aerial/orthophoto imagery.",
         planned_actions=(
-            "Read stage-1 all_features.geojson plus imagery_diagnostics.json from 01_shapefiles.",
-            "Ingest external segmentation polygons from 02_visual_enrichment/segmentation_input.geojson or a CLI-provided GeoJSON path.",
+            f"Read stage-1 all_features.geojson plus imagery_diagnostics.json from {SHAPEFILES_NUMBER_NAME}.",
+            f"Ingest external segmentation polygons from {STAGE_NUMBER_NAME}/segmentation_input.geojson or a CLI-provided GeoJSON path.",
             "Prepare a SAT2LoD2/LOD2BuildingModel external handoff manifest, and import user-provided SAT2LoD2 2D building polygons when available.",
             "Use building segmentation polygons to propose refined or missing building footprints for future LOD 2.2 reconstruction.",
             "Use terrain segmentation polygons to propose improved tags for weakly classified terrain and gap-fill surfaces.",
@@ -145,17 +151,17 @@ def run(
 ) -> VisualEnrichmentStageOutput:
     """Execute visual enrichment using reviewable external segmentation polygons."""
 
-    output_dir = config.output.root_directory / "02_visual_enrichment"
+    output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     output_dir.mkdir(parents=True, exist_ok=True)
     invalidate_stage_manifests(output_dir)
     segmentation_geojson_path = (
         segmentation_geojson_path.resolve() if segmentation_geojson_path is not None else None
     )
     sat2lod2_geojson_path = sat2lod2_geojson_path.resolve() if sat2lod2_geojson_path is not None else None
-    stage1_dir = config.output.root_directory / "01_shapefiles"
+    stage1_dir = stage_output_directory(config.output.root_directory, StageId.SHAPEFILES)
     stage1_manifest = require_completed_manifest(
         stage1_dir / "manifest.json",
-        expected_stage="shapefiles",
+        expected_stage=StageId.SHAPEFILES.value,
     )
     source_features_path = require_manifest_artifact(
         stage1_manifest,
@@ -268,7 +274,7 @@ def run(
         ArtifactReference("report", report_path, ArtifactKind.REPORT),
     )
     manifest = publish_stage_manifest(
-        stage="visual-enrichment",
+        stage=STAGE_ID.value,
         status=StageStatus.COMPLETED,
         output_directory=output_dir,
         report_path=report_path,
@@ -615,10 +621,14 @@ def _sat2lod2_handoff_manifest(
             "Use a user-installed copy externally, then import neutral GeoJSON polygon outputs."
         ),
         "source_stage1_features": str(source_features_path),
-        "expected_import_path": str(sat2lod2_path or (config.output.root_directory / "02_visual_enrichment" / DEFAULT_SAT2LOD2_POLYGONS_NAME)),
+        "expected_import_path": str(
+            sat2lod2_path
+            or stage_output_directory(config.output.root_directory, STAGE_ID)
+            / DEFAULT_SAT2LOD2_POLYGONS_NAME
+        ),
         "expected_import_format": (
             "GeoJSON FeatureCollection of SAT2LoD2-derived 2D building footprint polygons in the same lon/lat "
-            "frame as 01_shapefiles/all_features.geojson. Optional properties: confidence, score, source_image."
+            f"frame as {SHAPEFILES_NUMBER_NAME}/all_features.geojson. Optional properties: confidence, score, source_image."
         ),
         "orthophoto_sources": [
             {
@@ -822,7 +832,8 @@ def _build_diagnostics(
             "Segmentation is supplied by an external backend through GeoJSON masks; this package currently normalizes and compares those masks.",
             "SAT2LoD2/LOD2BuildingModel is treated as an optional user-installed external adapter because its license is not suitable for vendoring here.",
             "Overlap matching uses small-ROI lon/lat geometry for feature association and local meter projection for diagnostic area estimates.",
-            "The enriched_all_features.geojson file is a review artifact in 02_visual_enrichment, not a replacement for 01_shapefiles/all_features.geojson.",
+            f"The enriched_all_features.geojson file is a review artifact in {STAGE_NUMBER_NAME}, "
+            f"not a replacement for {SHAPEFILES_NUMBER_NAME}/all_features.geojson.",
         ],
     }
 
@@ -978,7 +989,7 @@ def _render_overlay_html(
       <h2>Candidate counts</h2>
       <table>{candidate_rows}</table>
       <p class="note">Muted fills are stage-1 features. Bright outlines are segmentation-derived candidates requiring review.</p>
-      <p class="note">Candidates are written to 02_visual_enrichment and do not overwrite the stage-1 GeoJSON files.</p>
+      <p class="note">Candidates are written to {STAGE_NUMBER_NAME} and do not overwrite the stage-1 GeoJSON files.</p>
       <p class="note">Use the mouse wheel or zoom buttons to zoom every feedback plot.</p>
     </section>
   </main>
@@ -997,7 +1008,7 @@ def _imagery_section(
     width = int(source.get("width", 1200))
     height = int(source.get("height", 1200))
     image_path = Path(str(source["image_path"]))
-    image_src = f"../01_shapefiles/imagery/{image_path.name}"
+    image_src = f"../{SHAPEFILES_NUMBER_NAME}/imagery/{image_path.name}"
     source_svg = "\n".join(_feature_to_bbox_svg(feature, bbox, width, height, candidate=False) for feature in source_features)
     candidate_svg = "\n".join(
         _feature_to_bbox_svg(feature, bbox, width, height, candidate=True, group=group)

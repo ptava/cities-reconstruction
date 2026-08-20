@@ -68,7 +68,7 @@ tree_overlap_tolerance_m = 2.0
 # SurfaceLayer outputs, use the generated Mesh_Terrain_Combined.obj rather than
 # residual Mesh_Terrain.obj. This can also be supplied for one trees invocation
 # with `--tree-terrain-geometry PATH`.
-# tree_terrain_geometry_path = "../../outputs/florence/03_city_models/city4cfd_output/Mesh_Terrain_Combined.obj"
+# tree_terrain_geometry_path = "../../outputs/florence/04_city_models/city4cfd_output/Mesh_Terrain_Combined.obj"
 
 [shapefiles]
 # Ordered Stage 1 rules that associate OSM/Overpass tags with output feature
@@ -201,7 +201,7 @@ category_mapping_path = "../../docs/assets/data/florence_opendata/trees_diameter
 model_library_path = "../../docs/assets/air_purifier_towers/parameters.json"
 # Optional local-frame OBJ or ASCII STL. If neither this key nor the
 # --terrain-geometry override is supplied, every purifier base uses z=0.
-# terrain_geometry_path = "../../outputs/florence/03_city_models/city4cfd_output/Mesh_Terrain_Combined.obj"
+# terrain_geometry_path = "../../outputs/florence/04_city_models/city4cfd_output/Mesh_Terrain_Combined.obj"
 
 [city_models]
 # City4CFD building level of detail: "1.2" extrudes one height, "1.3" supports

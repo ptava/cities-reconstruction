@@ -42,6 +42,7 @@ from cities_reconstruction.stage_contract import (
     require_completed_manifest,
     require_manifest_artifact,
 )
+from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
 
 DEFAULT_BUILDING_HEIGHT_M = 9.0
@@ -120,15 +121,18 @@ class CityModelsStageOutput:
         return self.manifest.to_dict()
 
 
+STAGE_ID = StageId.CITY_MODELS
+
+
 def plan(config: AppConfig) -> StageResult:
-    output = config.output.root_directory / "03_city_models"
+    output = stage_output_directory(config.output.root_directory, STAGE_ID)
     return StageResult(
-        stage="city-models",
+        stage=STAGE_ID.value,
         summary="Prepare configurable City4CFD LoD2.2 reconstruction inputs, command scripts, and tagged surface handoff files.",
         planned_actions=(
-            "Read module-2 ground/building point-cloud manifest and projected building footprints.",
+            "Read the ground/building point-cloud manifest and projected building footprints.",
             "Stop with a clear error when footprint/point-cloud alignment diagnostics failed.",
-            "Write a City4CFD configuration from the stage-03 TOML settings with separate ground/building point clouds.",
+            "Write a City4CFD configuration from the city_models TOML settings with separate ground/building point clouds.",
             "Run City4CFD when available, otherwise fall back to Docker, then write an executable command script and preview the generated terrain/building meshes for graphical QA.",
         ),
         expected_outputs=(output,),
@@ -142,8 +146,8 @@ def run(
 ) -> CityModelsStageOutput:
     """Prepare City4CFD inputs, run City4CFD when available, and write QA surfaces."""
 
-    output_dir = config.output.root_directory / "03_city_models"
-    with stage_output_lock(output_dir, "city-models"):
+    output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
+    with stage_output_lock(output_dir, STAGE_ID.value):
         invalidate_stage_manifests(
             output_dir,
             legacy_names=("city4cfd_reconstruction_manifest.json",),
@@ -154,10 +158,13 @@ def run(
 
 
 def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStageOutput:
-    point_manifest_path = config.output.root_directory / "02_point_cloud" / "manifest.json"
+    point_manifest_path = (
+        stage_output_directory(config.output.root_directory, StageId.POINT_CLOUD)
+        / "manifest.json"
+    )
     point_manifest = require_completed_manifest(
         point_manifest_path,
-        expected_stage="point-cloud",
+        expected_stage=StageId.POINT_CLOUD.value,
     )
     diagnostics_path = require_manifest_artifact(
         point_manifest,
@@ -196,7 +203,7 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
     footprints = _read_feature_collection(footprint_path)
     ground_elevation_index = _point_cloud_cell_stats(ground_point_cloud_path, prefer="min")
     building_roof_index = _point_cloud_cell_stats(building_point_cloud_path, prefer="max")
-    output_dir = config.output.root_directory / "03_city_models"
+    output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     surfaces_dir = output_dir / "surfaces"
     surface_layers_dir = output_dir / "surface_layers"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -445,7 +452,7 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
         ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
     ]
     manifest = publish_stage_manifest(
-        stage="city-models",
+        stage=STAGE_ID.value,
         status=_manifest_status(execution),
         output_directory=output_dir,
         report_path=report_path,
@@ -579,10 +586,10 @@ def _prepare_stage1_surface_layers(
     surface_layers_dir: Path,
     output_dir: Path,
 ) -> list[dict[str, Any]]:
-    stage1_dir = config.output.root_directory / "01_shapefiles"
+    stage1_dir = stage_output_directory(config.output.root_directory, StageId.SHAPEFILES)
     stage1_manifest = require_completed_manifest(
         stage1_dir / "manifest.json",
-        expected_stage="shapefiles",
+        expected_stage=StageId.SHAPEFILES.value,
     )
     summary_path = require_manifest_artifact(
         stage1_manifest,
@@ -1316,7 +1323,7 @@ def _render_preview(
     <span><span class="swatch" style="background:#16a34a"></span>generated terrain mesh</span>
     {surface_legend}
   </div>
-  <p class="note">Drag to rotate the generated surface preview. Use the mouse wheel or zoom buttons to zoom in and out. This plot renders the generated City4CFD OBJ meshes when present, with a bounded preview sample focused on the 3D objects so browser rendering remains responsive. If City4CFD has not produced meshes yet, the view falls back to the deterministic QA STL previews built from the same projected footprint and point-cloud evidence. Alignment status from module 2: {escape(str(diagnostics.get("alignment_status", "unknown")))}. Footprint overlap status: {escape(str(footprint_diagnostics["overlap_status"]))} ({footprint_diagnostics["overlap_pair_count"]} pairs).</p>
+  <p class="note">Drag to rotate the generated surface preview. Use the mouse wheel or zoom buttons to zoom in and out. This plot renders the generated City4CFD OBJ meshes when present, with a bounded preview sample focused on the 3D objects so browser rendering remains responsive. If City4CFD has not produced meshes yet, the view falls back to the deterministic QA STL previews built from the same projected footprint and point-cloud evidence. Alignment status from the point-cloud stage: {escape(str(diagnostics.get("alignment_status", "unknown")))}. Footprint overlap status: {escape(str(footprint_diagnostics["overlap_status"]))} ({footprint_diagnostics["overlap_pair_count"]} pairs).</p>
   <script>
     const stlScene = {stl_scene_json};
     const views = [
@@ -1755,7 +1762,7 @@ The stage-1 surface categories are projected from EPSG:4326 into `{config.region
 
 ## Execution
 
-This stage prepares the City4CFD inputs from the stage-03 TOML settings, checks whether `city4cfd` is available, and runs it directly or through Docker when needed. The generated script remains available as a reproducible fallback for environments where the tool is installed later.
+This stage prepares the City4CFD inputs from the `city_models` TOML settings, checks whether `city4cfd` is available, and runs it directly or through Docker when needed. The generated script remains available as a reproducible fallback for environments where the tool is installed later.
 
 - Contract status: `{_manifest_status(execution)}`
 - External execution status: `{execution.status}`
@@ -1767,7 +1774,7 @@ This stage prepares the City4CFD inputs from the stage-03 TOML settings, checks 
 
 ## Assumptions
 
-- Module 2 already produced separate ground and building point clouds in the same projected CRS as the footprints.
+- The point-cloud stage already produced separate ground and building point clouds in the same projected CRS as the footprints.
 - The City4CFD footprint GeoJSON preserves full polygon geometry, including inner rings/holes.
 - Overlapping footprint pairs are reported for review because superposed footprints can create duplicated reconstructed surfaces.
 - LoD2.2 roof geometry is expected to come from City4CFD/roofer using the building point cloud and projected roofprint polygons.

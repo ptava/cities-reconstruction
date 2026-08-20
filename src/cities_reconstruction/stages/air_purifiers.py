@@ -42,10 +42,13 @@ from cities_reconstruction.stage_contract import (
     require_completed_manifest,
     require_manifest_artifact,
 )
+from cities_reconstruction.stage_layout import STAGE_LAYOUT_BY_ID, StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
 
 PURIFIER_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 TERRAIN_CLEARANCE_M = 0.05
+STAGE_ID = StageId.AIR_PURIFIERS
+SHAPEFILES_NUMBER_NAME = STAGE_LAYOUT_BY_ID[StageId.SHAPEFILES].number_name
 
 
 @dataclass(frozen=True)
@@ -146,14 +149,14 @@ class AirPurifiersStageOutput:
 
 
 def plan(config: AppConfig) -> StageResult:
-    output = config.output.root_directory / "05_air_purifiers"
+    output = stage_output_directory(config.output.root_directory, STAGE_ID)
     catalog = config.air_purifiers.model_library_path
     terrain = config.air_purifiers.terrain_geometry_path
     return StageResult(
-        stage="air-purifiers",
+        stage=STAGE_ID.value,
         summary="Place normalized air-purifier models and publish CFD-ready three-region STL surfaces.",
         planned_actions=(
-            "Read normalized purifier points from 01_shapefiles/air_purifiers.geojson.",
+            f"Read normalized purifier points from {SHAPEFILES_NUMBER_NAME}/air_purifiers.geojson.",
             f"Resolve model library: {catalog if catalog is not None else 'unresolved (required at execution)' }.",
             f"Resolve terrain geometry: {terrain if terrain is not None else 'unresolved (use z=0)' }.",
             "Scale, rotate, terrain-project, and write aggregate/per-unit inlet, outlet, and tower surfaces.",
@@ -169,9 +172,9 @@ def run(
     model_library_path: Path | str | None = None,
     terrain_geometry_path: Path | str | None = None,
 ) -> AirPurifiersStageOutput:
-    output_dir = config.output.root_directory / "05_air_purifiers"
+    output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     instances_dir = output_dir / "surfaces" / "instances"
-    with stage_output_lock(output_dir, "air-purifiers"):
+    with stage_output_lock(output_dir, STAGE_ID.value):
         prior_instance_paths = _prior_instance_allowlist(output_dir / "manifest.json", instances_dir)
         invalidate_stage_manifests(
             output_dir,
@@ -197,8 +200,8 @@ def _run_locked(
     if model_library_path is None:
         raise ConfigError("air-purifier model library is unresolved; configure model_library_path or provide an override")
     stage1_manifest = require_completed_manifest(
-        config.output.root_directory / "01_shapefiles" / "manifest.json",
-        expected_stage="shapefiles",
+        stage_output_directory(config.output.root_directory, StageId.SHAPEFILES) / "manifest.json",
+        expected_stage=StageId.SHAPEFILES.value,
     )
     source_geojson = require_manifest_artifact(
         stage1_manifest,
@@ -206,7 +209,7 @@ def _run_locked(
         kind=ArtifactKind.HANDOFF,
     ).path
 
-    output_dir = config.output.root_directory / "05_air_purifiers"
+    output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     surfaces_dir = output_dir / "surfaces"
     instances_dir = surfaces_dir / "instances"
     placement_path = output_dir / "air_purifier_placements.geojson"
@@ -282,7 +285,7 @@ def _run_locked(
         ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
     )
     manifest = publish_stage_manifest(
-        stage="air-purifiers",
+        stage=STAGE_ID.value,
         status=StageStatus.COMPLETED,
         output_directory=output_dir,
         report_path=report_path,
@@ -685,7 +688,7 @@ The surfaces preserve the exact `inlet`, `outlet`, and `tower` exterior patch re
 
 def _prior_instance_allowlist(manifest_path: Path, instances_dir: Path) -> set[Path]:
     try:
-        manifest = load_stage_manifest(manifest_path, expected_stage="air-purifiers")
+        manifest = load_stage_manifest(manifest_path, expected_stage=STAGE_ID.value)
     except ConfigError:
         return set()
     parent = instances_dir.resolve()

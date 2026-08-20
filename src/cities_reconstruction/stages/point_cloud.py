@@ -37,6 +37,7 @@ from cities_reconstruction.stage_contract import (
     require_completed_manifest,
     require_manifest_artifact,
 )
+from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
 
 NODATA_DEFAULT = -9999.0
@@ -216,8 +217,11 @@ class PointCloudStageOutput:
         return self.manifest.to_dict()
 
 
+STAGE_ID = StageId.POINT_CLOUD
+
+
 def plan(config: AppConfig) -> StageResult:
-    output = config.output.root_directory / "02_point_cloud"
+    output = stage_output_directory(config.output.root_directory, STAGE_ID)
     if config.inputs.point_cloud_path is not None:
         source_action = (
             f"Reject single point-cloud input {config.inputs.point_cloud_path} until the config supports "
@@ -230,12 +234,12 @@ def plan(config: AppConfig) -> StageResult:
         )
 
     return StageResult(
-        stage="point-cloud",
+        stage=STAGE_ID.value,
         summary="Prepare City4CFD point clouds, unclassified DSM points, and footprint alignment diagnostics.",
         planned_actions=(
             source_action,
             "Read default building footprints from "
-            f"{config.output.root_directory / '01_shapefiles' / 'buildings.geojson'}; "
+            f"{stage_output_directory(config.output.root_directory, StageId.SHAPEFILES) / 'buildings.geojson'}; "
             "an execution-time CLI override must be explicit.",
             "Project footprints to the configured metric CRS and split DSM cells into building points.",
             "Optionally combine `inputs.tree_canopy_overlay_path` with stage-1 tree tags to identify DSM tree points.",
@@ -253,8 +257,8 @@ def run(
 ) -> PointCloudStageOutput:
     """Generate separate ground and building PLY files for City4CFD."""
 
-    output_dir = config.output.root_directory / "02_point_cloud"
-    with stage_output_lock(output_dir, "point-cloud"):
+    output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
+    with stage_output_lock(output_dir, STAGE_ID.value):
         invalidate_stage_manifests(
             output_dir,
             legacy_names=("city4cfd_point_cloud_manifest.json",),
@@ -268,7 +272,7 @@ def _run_locked(
     *,
     building_footprints_path: Path | None,
 ) -> PointCloudStageOutput:
-    output_dir = config.output.root_directory / "02_point_cloud"
+    output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     manifest_path = output_dir / "manifest.json"
 
     footprint_path = _select_building_footprints_path(config, building_footprints_path)
@@ -398,7 +402,7 @@ def _run_locked(
         )
     )
     manifest = publish_stage_manifest(
-        stage="point-cloud",
+        stage=STAGE_ID.value,
         status=StageStatus.COMPLETED,
         output_directory=output_dir,
         report_path=report_path,
@@ -465,8 +469,8 @@ def _select_building_footprints_path(
             raise ConfigError(f"explicit building-footprint GeoJSON does not exist: {explicit_path}")
         return explicit_path
     stage1_manifest = require_completed_manifest(
-        config.output.root_directory / "01_shapefiles" / "manifest.json",
-        expected_stage="shapefiles",
+        stage_output_directory(config.output.root_directory, StageId.SHAPEFILES) / "manifest.json",
+        expected_stage=StageId.SHAPEFILES.value,
     )
     return require_manifest_artifact(
         stage1_manifest,
@@ -476,11 +480,14 @@ def _select_building_footprints_path(
 
 
 def _select_optional_tree_features_path(config: AppConfig) -> Path | None:
-    manifest_path = config.output.root_directory / "01_shapefiles" / "manifest.json"
+    manifest_path = stage_output_directory(config.output.root_directory, StageId.SHAPEFILES) / "manifest.json"
     if not manifest_path.is_file():
         return None
     try:
-        stage1_manifest = require_completed_manifest(manifest_path, expected_stage="shapefiles")
+        stage1_manifest = require_completed_manifest(
+            manifest_path,
+            expected_stage=StageId.SHAPEFILES.value,
+        )
         return require_manifest_artifact(
             stage1_manifest,
             name="category-trees",

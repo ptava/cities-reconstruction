@@ -14,6 +14,7 @@ from cities_reconstruction.pipeline import (
     StageMaturity,
     dry_run,
 )
+from cities_reconstruction.stage_layout import STAGE_LAYOUT_BY_ID, StageId
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -42,7 +43,9 @@ def test_stage_registry_defines_order_and_executability() -> None:
         "openfoam",
     )
     assert EXECUTABLE_STAGE_NAMES == STAGE_NAMES[:-1]
-    assert tuple(spec.order for spec in STAGE_SPECS) == tuple(range(1, 8))
+    assert tuple(spec.stage_id for spec in STAGE_SPECS) == tuple(StageId)
+    assert tuple(spec.number for spec in STAGE_SPECS) == tuple(range(1, 8))
+    assert all(spec.layout is STAGE_LAYOUT_BY_ID[spec.stage_id] for spec in STAGE_SPECS)
     assert all(spec.manifest_filename == "manifest.json" for spec in STAGE_SPECS if spec.executable)
     assert STAGE_BY_NAME["openfoam"].manifest_filename is None
 
@@ -62,7 +65,7 @@ def test_point_cloud_registry_uses_shapefiles_as_default_not_dependency() -> Non
     assert spec.input("building-footprints") == StageInputSpec(
         name="building-footprints",
         required=True,
-        default_producer="shapefiles",
+        default_producer=StageId.SHAPEFILES,
         override="--building-footprints-geojson",
     )
     assert spec.input("stage-1-tree-points").required is False
@@ -70,8 +73,8 @@ def test_point_cloud_registry_uses_shapefiles_as_default_not_dependency() -> Non
 
 def test_registry_records_hard_dependencies_and_maturity() -> None:
     assert STAGE_BY_NAME["city-models"].hard_dependencies == (
-        "shapefiles",
-        "point-cloud",
+        StageId.SHAPEFILES,
+        StageId.POINT_CLOUD,
     )
     assert STAGE_BY_NAME["visual-enrichment"].maturity is StageMaturity.REVIEW_ONLY
     assert STAGE_BY_NAME["trees"].maturity is StageMaturity.INCOMPLETE
@@ -82,7 +85,7 @@ def test_registry_output_directories_match_stage_planners(florence_config) -> No
     for spec in STAGE_SPECS:
         plan = spec.planner(florence_config)
         assert plan.expected_outputs == (
-            florence_config.output.root_directory / spec.output_directory,
+            florence_config.output.root_directory / spec.number_name,
         )
 
 
@@ -93,7 +96,7 @@ def test_dry_run_includes_air_purifiers_between_trees_and_openfoam(florence_conf
     tree_index = names.index("trees")
     assert names[tree_index : tree_index + 3] == ["trees", "air-purifiers", "openfoam"]
     assert results[tree_index + 1].expected_outputs == (
-        florence_config.output.root_directory / "05_air_purifiers",
+        florence_config.output.root_directory / "06_air_purifiers",
     )
 
 

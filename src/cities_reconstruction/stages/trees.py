@@ -30,6 +30,7 @@ from cities_reconstruction.stage_contract import (
     require_completed_manifest,
     require_manifest_artifact,
 )
+from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
 
 
@@ -121,6 +122,7 @@ class TreesStageOutput:
 
 
 TREE_TERRAIN_CLEARANCE_M = 0.05
+STAGE_ID = StageId.TREES
 
 CROWN_SEGMENTS = 16
 CROWN_RINGS = 8
@@ -130,15 +132,15 @@ Triangle = tuple[str, Point3, Point3, Point3]
 
 
 def plan(config: AppConfig) -> StageResult:
-    output = config.output.root_directory / "04_trees"
+    output = stage_output_directory(config.output.root_directory, STAGE_ID)
     return StageResult(
-        stage="trees",
+        stage=STAGE_ID.value,
         summary="Generate parametric tree STL models from retrieved tree features.",
         planned_actions=(
             f"Use {config.trees.default} as the configured fallback species for tree features without species tags.",
             "Read retrieved OSM tree features from module 1.",
             "Project tree placements to the configured EPSG:25832 metric CRS.",
-            "Optionally project tree bases onto a supplied terrain geometry file from stage 3 so trunk bases sit just below the local terrain surface.",
+            "Optionally project tree bases onto a supplied city-models terrain geometry file so trunk bases sit just below the local terrain surface.",
             "Resolve species through the configured species/category mapping and scale category models with available tree height/diameter tags.",
             "Write trunk, crown, and combined STL surfaces plus an interactive HTML QA preview.",
         ),
@@ -149,7 +151,7 @@ def plan(config: AppConfig) -> StageResult:
 def run(config: AppConfig) -> TreesStageOutput:
     """Generate deterministic parametric tree meshes from stage-1 tree features."""
 
-    output_dir = config.output.root_directory / "04_trees"
+    output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     output_dir.mkdir(parents=True, exist_ok=True)
     invalidate_stage_manifests(
         output_dir,
@@ -159,8 +161,8 @@ def run(config: AppConfig) -> TreesStageOutput:
         raise ConfigError("tree model generation currently supports EPSG:25832 output coordinates")
 
     stage1_manifest = require_completed_manifest(
-        config.output.root_directory / "01_shapefiles" / "manifest.json",
-        expected_stage="shapefiles",
+        stage_output_directory(config.output.root_directory, StageId.SHAPEFILES) / "manifest.json",
+        expected_stage=StageId.SHAPEFILES.value,
     )
     tree_features_path = require_manifest_artifact(
         stage1_manifest,
@@ -244,7 +246,7 @@ def run(config: AppConfig) -> TreesStageOutput:
         ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
     )
     manifest = publish_stage_manifest(
-        stage="trees",
+        stage=STAGE_ID.value,
         status=StageStatus.COMPLETED,
         output_directory=output_dir,
         report_path=report_path,
@@ -1165,7 +1167,7 @@ def _render_preview(config: AppConfig, instances: list[TreeInstance], surface_or
   <p class="note">Species-tag models: <strong><span id="tagInfo"></span></strong>. Direct planning models: <strong><span id="planningInfo"></span></strong>. Fallback species models: <strong><span id="defaultInfo"></span></strong>.</p>
   <h2>Named Trees</h2>
   <div class="species-list" id="speciesList"></div>
-  <p class="note">Drag to rotate the 3D tree preview. Use the mouse wheel or zoom buttons to zoom in and out. The placement GeoJSON stays in projected EPSG:25832 coordinates, while the STL surfaces are translated to the same local origin used by the City4CFD handoff so they line up with module 3 output.</p>
+  <p class="note">Drag to rotate the 3D tree preview. Use the mouse wheel or zoom buttons to zoom in and out. The placement GeoJSON stays in projected EPSG:25832 coordinates, while the STL surfaces are translated to the same local origin used by the City4CFD handoff so they line up with city-models output.</p>
   <script>
     const scene = {scene_json};
     const view = {{ canvas: document.getElementById("treeScene"), yaw: -0.7, pitch: 0.82, zoom: 1.0, dragging: false, last: null }};

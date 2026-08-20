@@ -56,7 +56,7 @@ def test_prepares_city4cfd_lod22_handoff_from_point_cloud_manifest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
-    stale_mesh = config_path.parent / "outputs" / "03_city_models" / "Mesh_Buildings.obj"
+    stale_mesh = config_path.parent / "outputs" / "04_city_models" / "Mesh_Buildings.obj"
     stale_mesh.parent.mkdir(parents=True, exist_ok=True)
     _write_obj_mesh(stale_mesh, kind="building")
     executor = FakeExecutor(_execution_result())
@@ -213,7 +213,7 @@ def test_city_models_surface_layers_reject_wrong_manifest_artifact_kind(tmp_path
 
 def test_city_models_rejects_failed_alignment(tmp_path: Path) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="failed")
-    stage_dir = config_path.parent / "outputs" / "03_city_models"
+    stage_dir = config_path.parent / "outputs" / "04_city_models"
     manifest_path = stage_dir / "manifest.json"
     legacy_manifest_path = stage_dir / "city4cfd_reconstruction_manifest.json"
     stage_dir.mkdir(parents=True, exist_ok=True)
@@ -235,7 +235,7 @@ def test_city_models_rejects_failed_alignment(tmp_path: Path) -> None:
 
 def test_city_models_rejects_wrong_stage_point_cloud_manifest(tmp_path: Path) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
-    manifest_path = config_path.parent / "outputs" / "02_point_cloud" / "manifest.json"
+    manifest_path = config_path.parent / "outputs" / "03_point_cloud" / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     payload["stage"] = "shapefiles"
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -246,7 +246,7 @@ def test_city_models_rejects_wrong_stage_point_cloud_manifest(tmp_path: Path) ->
 
 def test_city_models_rejects_failed_point_cloud_manifest(tmp_path: Path) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
-    manifest_path = config_path.parent / "outputs" / "02_point_cloud" / "manifest.json"
+    manifest_path = config_path.parent / "outputs" / "03_point_cloud" / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     payload["status"] = "failed_external_execution"
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -257,7 +257,7 @@ def test_city_models_rejects_failed_point_cloud_manifest(tmp_path: Path) -> None
 
 def test_city_models_rejects_malformed_point_cloud_manifest(tmp_path: Path) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
-    manifest_path = config_path.parent / "outputs" / "02_point_cloud" / "manifest.json"
+    manifest_path = config_path.parent / "outputs" / "03_point_cloud" / "manifest.json"
     manifest_path.write_text("{", encoding="utf-8")
 
     with pytest.raises(ConfigError, match="cannot read stage manifest"):
@@ -266,7 +266,7 @@ def test_city_models_rejects_malformed_point_cloud_manifest(tmp_path: Path) -> N
 
 def test_city_models_rejects_point_cloud_manifest_missing_required_handoff(tmp_path: Path) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
-    manifest_path = config_path.parent / "outputs" / "02_point_cloud" / "manifest.json"
+    manifest_path = config_path.parent / "outputs" / "03_point_cloud" / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     payload["artifacts"] = [
         artifact
@@ -284,7 +284,7 @@ def test_failed_city_models_qa_does_not_publish_manifest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
-    output_dir = config_path.parent / "outputs" / "03_city_models"
+    output_dir = config_path.parent / "outputs" / "04_city_models"
     manifest_path = output_dir / "manifest.json"
     legacy_manifest_path = output_dir / "city4cfd_reconstruction_manifest.json"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -309,7 +309,7 @@ def test_external_failure_publishes_failed_handoff_and_discards_partial_meshes(
     tmp_path: Path,
 ) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
-    output_dir = config_path.parent / "outputs" / "03_city_models"
+    output_dir = config_path.parent / "outputs" / "04_city_models"
 
     def write_partial_mesh(_request) -> None:
         partial_dir = output_dir / "city4cfd_output"
@@ -347,7 +347,7 @@ def test_external_failure_publishes_failed_handoff_and_discards_partial_meshes(
 def test_city_models_runs_city4cfd_when_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
     calls: list[list[str]] = []
-    output_dir = config_path.parent / "outputs" / "03_city_models"
+    output_dir = config_path.parent / "outputs" / "04_city_models"
 
     def fake_run(request) -> None:
         calls.append(["/usr/bin/city4cfd", str(request.config_path), "--output_dir", request.output_directory_name])
@@ -387,7 +387,7 @@ def test_successful_city4cfd_without_core_geometry_does_not_publish_manifest(
     status: str,
 ) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
-    manifest_path = config_path.parent / "outputs" / "03_city_models" / "manifest.json"
+    manifest_path = config_path.parent / "outputs" / "04_city_models" / "manifest.json"
 
     with pytest.raises(ConfigError, match="reported success.*required generated geometry"):
         city_models.run(
@@ -409,7 +409,7 @@ def test_successful_nonseparate_city4cfd_requires_configured_aggregate_geometry(
         config,
         city_models=replace(config.city_models, output_separately=False),
     )
-    output_dir = config.output.root_directory / "03_city_models"
+    output_dir = config.output.root_directory / "04_city_models"
 
     def write_aggregate_mesh(_request) -> None:
         generated_dir = output_dir / "city4cfd_output"
@@ -443,7 +443,7 @@ def test_switching_from_split_to_aggregate_does_not_publish_stale_split_meshes(
 ) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
     split_config = load_config(config_path)
-    output_dir = split_config.output.root_directory / "03_city_models"
+    output_dir = split_config.output.root_directory / "04_city_models"
     generated_dir = output_dir / "city4cfd_output"
 
     def write_split_meshes(_request) -> None:
@@ -509,7 +509,7 @@ def test_city_models_preview_loads_meshes_from_configured_city4cfd_output_dir(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
-    output_dir = config_path.parent / "outputs" / "03_city_models"
+    output_dir = config_path.parent / "outputs" / "04_city_models"
 
     def fake_run(request) -> None:
         assert request.working_directory == output_dir
@@ -612,7 +612,7 @@ def test_city_models_runs_city4cfd_with_docker_when_binary_missing(
             return "/usr/bin/docker"
         return None
 
-    output_dir = config_path.parent / "outputs" / "03_city_models"
+    output_dir = config_path.parent / "outputs" / "04_city_models"
 
     def fake_run(request) -> None:
         calls.append(["/usr/bin/docker", "run", request.docker_image or "tudelft3d/city4cfd:0.8.0"])
@@ -763,7 +763,7 @@ def _prepare_point_cloud_fixture(tmp_path: Path, alignment_status: str) -> Path:
     config_path = tmp_path / "config.toml"
     outputs = tmp_path / "outputs"
     shapefiles_dir = outputs / "01_shapefiles"
-    point_dir = outputs / "02_point_cloud"
+    point_dir = outputs / "03_point_cloud"
     shapefiles_dir.mkdir(parents=True)
     point_dir.mkdir(parents=True)
     center_lon = 11.2558

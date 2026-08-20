@@ -193,7 +193,7 @@ def test_rotation_local_origin_and_terrain_clearance(tmp_path: Path) -> None:
 def test_z_zero_fallback_and_exact_output_contract(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _write_features(config, [_feature("AP-001")])
-    legacy_manifest = config.output.root_directory / "05_air_purifiers/air_purifier_models_manifest.json"
+    legacy_manifest = config.output.root_directory / "06_air_purifiers/air_purifier_models_manifest.json"
     legacy_manifest.parent.mkdir(parents=True)
     legacy_manifest.write_text('{"legacy": true}', encoding="utf-8")
     result = air_purifiers.run(config)
@@ -572,7 +572,7 @@ def test_rejects_invalid_feature_sets(tmp_path: Path, features, message: str) ->
 
 def test_validates_rotated_footprint_and_stage3_manifest(tmp_path: Path) -> None:
     config = _config(tmp_path)
-    terrain = config.output.root_directory / "03_city_models/terrain.obj"
+    terrain = config.output.root_directory / "04_city_models/terrain.obj"
     terrain.parent.mkdir(parents=True)
     _write_flat_terrain(terrain, extent=0.6)
     _write_features(config, [_feature("AP-X", width=1.0, depth=1.0, rotation=45)])
@@ -833,7 +833,7 @@ def test_manifest_lists_purifier_handoffs_and_supporting_placement(tmp_path: Pat
 
 def test_air_purifier_terrain_errors_use_stage_specific_wording(tmp_path: Path) -> None:
     config = _config(tmp_path)
-    terrain = config.output.root_directory / "03_city_models/terrain.obj"
+    terrain = config.output.root_directory / "04_city_models/terrain.obj"
     terrain.parent.mkdir(parents=True)
     _write_flat_terrain(terrain)
     _write_features(config, [_feature("AP-X")])

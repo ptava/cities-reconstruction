@@ -60,7 +60,7 @@ def test_lightweight_fingerprint_is_canonical_and_metadata_sensitive(tmp_path: P
 
 
 def test_known_mesh_cleanup_unlinks_symlink_without_touching_target(tmp_path: Path) -> None:
-    output_dir = tmp_path / "03_city_models"
+    output_dir = tmp_path / "04_city_models"
     generated_dir = output_dir / "city4cfd_output"
     generated_dir.mkdir(parents=True)
     external_target = tmp_path / "external.obj"
@@ -75,7 +75,7 @@ def test_known_mesh_cleanup_unlinks_symlink_without_touching_target(tmp_path: Pa
 
 
 def test_known_mesh_cleanup_rejects_non_file_and_path_escape(tmp_path: Path) -> None:
-    output_dir = tmp_path / "03_city_models"
+    output_dir = tmp_path / "04_city_models"
     generated_dir = output_dir / "city4cfd_output"
     (generated_dir / "Mesh_Terrain.obj").mkdir(parents=True)
 

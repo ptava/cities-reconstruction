@@ -79,7 +79,7 @@ The project is organized as a set of small modules that match the intended compu
 
 External systems such as Overpass, City4CFD, and OpenFOAM are kept behind stage modules. This keeps the CLI and configuration layer testable while domain-specific adapters are added incrementally.
 
-`StageSpec` is the authoritative registry for stage order, maturity, dependencies, inputs, output directories, planners, and execution adapters. The CLI derives executable stage choices and `run-stage` dispatch from that registry; stage-specific CLI overrides are applied by the focused runtime adapters in `stage_runtime.py`.
+`StageId` provides stable stage identity independently of presentation order. The dependency-neutral stage-layout catalogue stores only each identity and sequence number; its `number_name` property composes directory names such as `03_point_cloud` from those two values. `StageSpec` adds maturity, dependencies, inputs, planners, and execution adapters without duplicating layout metadata. The CLI derives executable stage choices and `run-stage` dispatch from that registry; stage-specific CLI overrides are applied by the focused runtime adapters in `stage_runtime.py`.
 
 ### Current Stage Status
 
@@ -89,11 +89,11 @@ The application currently executes one selected stage at a time with `run-stage`
 | --- | --- | --- | --- | --- |
 | `shapefiles` | `implemented` | Region and classification configuration; Overpass and configured local inputs | `--overpass-json` plus documented supplemental-file overrides | `01_shapefiles` |
 | `visual-enrichment` | `review_only` | Stage 1 `all_features.geojson`; external candidates are optional | `--segmentation-geojson`, `--sat2lod2-geojson` | `02_visual_enrichment` |
-| `point-cloud` | `implemented` | Paired DTM/DSM grids and building-footprint GeoJSON; Stage 1 is only the default footprint producer | `--building-footprints-geojson`, `--tree-canopy-overlay` | `02_point_cloud` |
-| `city-models` | `implemented` | Stage 1 semantic surfaces and the completed point-cloud manifest | Documented `--city-models-*` parameters | `03_city_models` |
-| `trees` | `incomplete` | Stage 1 tree features and the configured tree model library | `--tree-terrain-geometry` for optional terrain placement | `04_trees` |
-| `air-purifiers` | `implemented` | Stage 1 purifier features and a purifier model catalog | `--model-library`, `--terrain-geometry` | `05_air_purifiers` |
-| `openfoam` | `planned` | Planned handoff from city, tree, and purifier geometry | None; execution is not implemented | `05_openfoam_case` (planned) |
+| `point-cloud` | `implemented` | Paired DTM/DSM grids and building-footprint GeoJSON; Stage 1 is only the default footprint producer | `--building-footprints-geojson`, `--tree-canopy-overlay` | `03_point_cloud` |
+| `city-models` | `implemented` | Stage 1 semantic surfaces and the completed point-cloud manifest | Documented `--city-models-*` parameters | `04_city_models` |
+| `trees` | `incomplete` | Stage 1 tree features and the configured tree model library | `--tree-terrain-geometry` for optional terrain placement | `05_trees` |
+| `air-purifiers` | `implemented` | Stage 1 purifier features and a purifier model catalog | `--model-library`, `--terrain-geometry` | `06_air_purifiers` |
+| `openfoam` | `planned` | Planned handoff from city, tree, and purifier geometry | None; execution is not implemented | `07_openfoam` (planned) |
 
 Point-cloud generation does **not** unconditionally depend on running `shapefiles`. It requires building footprints, but `--building-footprints-geojson` can provide them directly. When canopy filtering is enabled, the named `category-trees` handoff from a valid completed Stage 1 manifest supplies optional nearby tree-tag evidence. A missing, failed, or incomplete Stage 1 run produces no tree-tag points when explicit footprints are used; loose `01_shapefiles/trees.geojson` data is never trusted by itself.
 
@@ -148,6 +148,7 @@ This route is implemented only as an external adapter. The repository license/EU
 │       ├── adapters/
 │       ├── geometry/
 │       ├── pipeline.py
+│       ├── stage_layout.py
 │       ├── stage_runtime.py
 │       └── stages/
 ├── tools/
@@ -267,7 +268,7 @@ Prepare the City4CFD LoD2.2 reconstruction handoff after point-cloud preparation
 uv run cities-reconstruction run-stage --config config/examples/florence.toml city-models
 ```
 
-Override stage 03 parameters from the command line when needed:
+Override `city_models` parameters from the command line when needed:
 
 ```bash
 uv run cities-reconstruction run-stage --config config/examples/florence.toml city-models --city-models-top-height 350 --city-models-flow-direction 1 0 --no-city-models-reconstruct-boundaries
@@ -382,7 +383,7 @@ crs = "EPSG:3857"
 
 [air_purifiers]
 model_library_path = "../models/parameters.json"
-# terrain_geometry_path = "../outputs/03_city_models/city4cfd_output/Mesh_Terrain_Combined.obj"
+# terrain_geometry_path = "../outputs/04_city_models/city4cfd_output/Mesh_Terrain_Combined.obj"
 ```
 
 Each file is one GeoJSON `FeatureCollection`. Every feature requires a two-dimensional finite Point, a safe `properties.id`, `properties.kind` equal to `tree` or `air_purifier`, and an exact internal parametric `properties.model` name. EPSG:4326 coordinates use `[longitude, latitude]`; EPSG:3857 coordinates use Web Mercator `[x, y]` metres. Stage 1 normalizes both to EPSG:4326.
@@ -430,9 +431,9 @@ The Stage 1 preview distinguishes OSM/supplemental existing trees from planned t
 
 The core `air_purifiers.run(...)` stage consumes only the normalized `01_shapefiles/air_purifiers.geojson`. It validates identity and provenance, retains normalized EPSG:4326 source coordinates alongside projected/local coordinates, resolves model defaults and overrides, applies anisotropic scaling and counter-clockwise +Z rotation, and translates each model into the same local EPSG:25832 frame as City4CFD and trees. With terrain configured, all four rotated footprint corners must be inside its extent before sampling; without terrain, bases use `z=0`.
 
-Successful generation writes `05_air_purifiers/air_purifier_placements.geojson`, `air_purifier_models_report.md`, an offline interactive `air_purifier_models_preview.html`, a combined three-region STL, one safe-ID STL per unit, and the canonical `manifest.json` as the final completion marker. Every STL preserves exact non-empty `inlet`, `outlet`, and `tower` regions. The preview renders those transformed patch triangles in blue, red, and grey and provides orbit, zoom, reset, model, and instance controls. Reports count models, source inputs, and parameter provenance. The stage is registered after `trees` and before `openfoam` and is executable through `run-stage air-purifiers`.
+Successful generation writes `06_air_purifiers/air_purifier_placements.geojson`, `air_purifier_models_report.md`, an offline interactive `air_purifier_models_preview.html`, a combined three-region STL, one safe-ID STL per unit, and the canonical `manifest.json` as the final completion marker. Every STL preserves exact non-empty `inlet`, `outlet`, and `tower` regions. The preview renders those transformed patch triangles in blue, red, and grey and provides orbit, zoom, reset, model, and instance controls. Reports count models, source inputs, and parameter provenance. The stage is registered after `trees` and before `openfoam` and is executable through `run-stage air-purifiers`.
 
-`trees.model_library_path` points to a JSON parametric tree model catalog, and `trees.category_mapping_path` points to a JSON file with `species_to_category` mappings. The Florence example uses `docs/assets/tree_models/categories/tree_categories.json` plus `docs/assets/data/florence_opendata/trees_diameter/species_category_mapping.json`. Existing OSM and supplemental trees use species/category mapping and the current allometric/default rules. Urban-planning trees instead use their exact internal `model` directly and apply any planned dimension overrides. Missing dimensions keep the selected category model defaults. The small idealised category library includes large and small round broadleaf, pyramidal and columnar conifer, umbrella pine, palm tuft, fastigiate broadleaf, and weeping broadleaf models. These are base CFD/QA assets, not botanical-detail meshes. The stage-04 tree preview recenters its camera on generated instances for review, while exported placements and STL surfaces keep the configured projected origin used to align with City4CFD output.
+`trees.model_library_path` points to a JSON parametric tree model catalog, and `trees.category_mapping_path` points to a JSON file with `species_to_category` mappings. The Florence example uses `docs/assets/tree_models/categories/tree_categories.json` plus `docs/assets/data/florence_opendata/trees_diameter/species_category_mapping.json`. Existing OSM and supplemental trees use species/category mapping and the current allometric/default rules. Urban-planning trees instead use their exact internal `model` directly and apply any planned dimension overrides. Missing dimensions keep the selected category model defaults. The small idealised category library includes large and small round broadleaf, pyramidal and columnar conifer, umbrella pine, palm tuft, fastigiate broadleaf, and weeping broadleaf models. These are base CFD/QA assets, not botanical-detail meshes. The tree preview recenters its camera on generated instances for review, while exported placements and STL surfaces keep the configured projected origin used to align with City4CFD output.
 
 The source category folder also includes `category_models_preview.html` for a 3D review of all category OBJ models and `category_model_catalog.md` for category parameters, mapped species, and the DBH scaling equations used by the current tree stage. In the category preview, each species name can be clicked to fetch up to three online reference images with source links for visual verification. Exact binomial species first use Wikidata scientific-name taxa and Wikimedia Commons taxon categories; genus-only and `spp.` source values are labelled as broader references. Regenerate both artifacts with `python3 tools/build_tree_category_catalog.py`.
 
@@ -504,7 +505,7 @@ If no segmentation input is available, the stage still writes an input template,
 
 ## Point Cloud Outputs
 
-The `point-cloud` stage reads DTM/DSM ASCII grids and, by default, the authoritative Stage 1 footprints at `<output.root_directory>/01_shapefiles/buildings.geojson`, then writes outputs under `<output.root_directory>/02_point_cloud`. It never activates files under the dormant `02_visual_enrichment` directory merely because they exist. A deliberate one-run alternative requires `--building-footprints-geojson`; the selected path is preserved in diagnostics, manifests, and reports.
+The `point-cloud` stage reads DTM/DSM ASCII grids and, by default, the authoritative Stage 1 footprints at `<output.root_directory>/01_shapefiles/buildings.geojson`, then writes outputs under `<output.root_directory>/03_point_cloud`. It never activates files under the dormant `02_visual_enrichment` directory merely because they exist. A deliberate one-run alternative requires `--building-footprints-geojson`; the selected path is preserved in diagnostics, manifests, and reports.
 
 - `ground_points.ply`: ground point cloud for City4CFD
 - `building_points.ply`: building point cloud for City4CFD, sampled from DSM cells at least 2 m above DTM and inside building footprints
@@ -532,7 +533,7 @@ A DSM cell becomes a tree candidate when it is above the DTM tree-height thresho
 
 ## City4CFD Handoff Outputs
 
-The `city-models` stage reads the completed schema-version-2 `<output.root_directory>/02_point_cloud/manifest.json`, refuses to proceed if alignment diagnostics failed, checks whether `city4cfd` is available, and runs it directly or through Docker when needed, then writes outputs under `<output.root_directory>/03_city_models`:
+The `city-models` stage reads the completed schema-version-2 `<output.root_directory>/03_point_cloud/manifest.json`, refuses to proceed if alignment diagnostics failed, checks whether `city4cfd` is available, and runs it directly or through Docker when needed, then writes outputs under `<output.root_directory>/04_city_models`:
 
 During the `shapefiles` stage, each building feature receives a numeric `building_base_height_m`, making the resolved value visible in `01_shapefiles/buildings.geojson` and preserving it through later stages. Ordinary buildings receive `0`; an OSM `building=roof` uses its non-negative `min_height` tag when available and otherwise uses `city_models.building_roof_default_base_height_m` (2 m in the Florence configurations). The `point-cloud` stage preserves this property while projecting the footprints. The generated City4CFD Building input names the field through `building_base_height_attribute`, allowing elevated roof/underpass geometry instead of extending those roof footprints down to terrain. This option requires a City4CFD version that supports `building_base_height_attribute` (0.8.0 or newer).
 
@@ -553,7 +554,7 @@ During the `shapefiles` stage, each building feature receives a numeric `buildin
 
 The city-models stage uses the same single-writer and manifest-last contract. Before checking tool availability or executing City4CFD, it invalidates the previous manifest and logs and removes an exact allowlisted union of aggregate, split core, semantic-layer, and combined-terrain filenames for the current output name and format from the configured output directory and documented legacy root. This prevents an output-mode change from republishing meshes produced by an earlier run. It never performs directory-wide deletion and never follows a mesh symlink target. External execution is isolated behind an adapter that uses argument arrays without a shell and captures bounded stdout/stderr. A native or Docker nonzero exit removes any newly written partial meshes, builds QA only from deterministic fallback geometry, publishes `manifest.json` with status `failed_external_execution`, and makes the CLI return `1`. A native or Docker success must produce the configured core geometry contract—separate Buildings and Terrain OBJ/STL files, one aggregate OBJ/STL file, or one CityJSON file—or the run is rejected without a manifest; successful core handoffs are required artifacts. Split meshes, semantic meshes, and combined terrain are discovered and published only in separate-output mode. Configuration/QA failures publish no manifest. When neither native City4CFD nor Docker is available, the reproducible preparation and QA handoff is still `completed`, while the external-execution detail records that no tool ran. Downstream consumers require a valid `completed` manifest; manifest existence alone is not sufficient.
 
-Set `CITY4CFD_DOCKER_IMAGE` if you need to override the default Docker image name used for the fallback run, or set `city_models.docker_image` in the TOML config. The TOML value takes precedence over the environment. The current reproducible default is the published version tag `tudelft3d/city4cfd:0.8.0`, rather than the mutable `latest` tag. Image values beginning with `-` are rejected before Docker starts so they cannot be interpreted as command options. Native and Docker execution both create `<output.root_directory>/03_city_models/city4cfd_output` and pass that directory to City4CFD with `--output_dir`. The generated handoff script shell-quotes every dynamic path, image, mount, and argument.
+Set `CITY4CFD_DOCKER_IMAGE` if you need to override the default Docker image name used for the fallback run, or set `city_models.docker_image` in the TOML config. The TOML value takes precedence over the environment. The current reproducible default is the published version tag `tudelft3d/city4cfd:0.8.0`, rather than the mutable `latest` tag. Image values beginning with `-` are rejected before Docker starts so they cannot be interpreted as command options. Native and Docker execution both create `<output.root_directory>/04_city_models/city4cfd_output` and pass that directory to City4CFD with `--output_dir`. The generated handoff script shell-quotes every dynamic path, image, mount, and argument.
 
 The projected footprint GeoJSON is the source for inner building parts in the City4CFD handoff. Full polygon coordinates are preserved, including inner rings/courtyards, so those details are passed through as footprint geometry rather than being inferred from point-cloud density. The point clouds remain the ground/building elevation evidence for reconstruction. Stage-1 surface categories start as EPSG:4326 GeoJSON and are projected to the configured EPSG:25832 metric CRS, assigned explicit CRS metadata, and clipped to the circular outer ROI before being imported as separate, named City4CFD `SurfaceLayer` polygon files. Supplemental surfaces join the selected category GeoJSON, so no City4CFD-specific duplicate import path is needed. Clipping ensures that large features crossing the ROI, such as a river or imported street polygon, have an explicit boundary within City4CFD's reconstruction area. City4CFD imprints those polygons into the terrain; with `output_separately = true`, the residual terrain remains `Mesh_Terrain.obj` and each semantic category is exported as `Mesh_<layer_name>.obj`. In that mode the reconstruction manifest records both the expected path and current existence of every semantic mesh. Split-mesh discovery checks the configured City4CFD output directory (`city4cfd_output`) before falling back to legacy root-level paths, and the preview embeds bounded triangle samples for buildings, terrain, and every available semantic layer. Aggregate mode publishes only the aggregate City4CFD handoff and uses deterministic local QA geometry for the preview, so stale split meshes cannot contribute to it. If separate generated meshes are missing, the preview likewise falls back to the deterministic STL previews built from the same projected footprints and height evidence.
 
@@ -561,7 +562,7 @@ The footprint diagnostics report superposed building footprints because overlapp
 
 ## Tree Model Outputs
 
-The `trees` stage reads the named Stage 1 `category-trees` handoff, including supplemental existing trees and direct-model urban-planning trees routed by Stage 1, projects placements to EPSG:25832, and writes outputs under `<output.root_directory>/04_trees`. Existing trees use species/category mapping; planned trees use their exact selected model and optional dimensions. If `inputs.tree_terrain_geometry_path` is provided, the stage projects each tree base onto that terrain mesh and places the trunk base just below the local terrain surface. A terrain path inside `03_city_models` is accepted only when the adjacent schema-version-2 City4CFD manifest is valid and `completed` and declares that exact path as a `handoff` artifact:
+The `trees` stage reads the named Stage 1 `category-trees` handoff, including supplemental existing trees and direct-model urban-planning trees routed by Stage 1, projects placements to EPSG:25832, and writes outputs under `<output.root_directory>/05_trees`. Existing trees use species/category mapping; planned trees use their exact selected model and optional dimensions. If `inputs.tree_terrain_geometry_path` is provided, the stage projects each tree base onto that terrain mesh and places the trunk base just below the local terrain surface. A terrain path inside `04_city_models` is accepted only when the adjacent schema-version-2 City4CFD manifest is valid and `completed` and declares that exact path as a `handoff` artifact:
 
 - `tree_placements.geojson`: projected tree points with preserved source species, selected category model, dimensions, ROI zone, source IDs, per-field value sources, used tags, and defaulted fields
 - `tree_species_library.json`: configured category models, fallback species/category settings, aliases, crown shapes, and documented assumptions
@@ -578,7 +579,7 @@ The preview surfaces are not final CFD-ready City4CFD outputs. They exist so use
 
 ## Air-Purifier Model Outputs
 
-The `air-purifiers` stage reads only the named Stage 1 `air-purifiers` handoff and the resolved schema-version-1 model catalog. It does not read raw shapefiles or depend on the tree stage at runtime. It writes the following under `<output.root_directory>/05_air_purifiers`:
+The `air-purifiers` stage reads only the named Stage 1 `air-purifiers` handoff and the resolved schema-version-1 model catalog. It does not read raw shapefiles or depend on the tree stage at runtime. It writes the following under `<output.root_directory>/06_air_purifiers`:
 
 - `air_purifier_placements.geojson`: EPSG:25832 source points plus local placements, base elevations, selected models, target/native dimensions, scale factors, normalized rotations, parameter provenance, source coordinates, input IDs, and ROI zones
 - `manifest.json`: schema-version-2 manifest-last completion record with typed surface handoffs, resolved inputs, model files, terrain details, local origin, counts, and provenance
@@ -587,7 +588,7 @@ The `air-purifiers` stage reads only the named Stage 1 `air-purifiers` handoff a
 - `surfaces/air_purifiers_combined.stl`: all placed instances aggregated into exactly three non-empty ASCII-STL solids named `inlet`, `outlet`, and `tower`
 - `surfaces/instances/<PURIF_ID>.stl`: one transformed unit per safe purifier ID, each with the same exact three non-empty regions
 
-The aggregate triangle count for each region equals the sum of that region across all per-unit STLs. The geometry stays separate from City4CFD meshes; downstream OpenFOAM preparation can consume the aggregate surface or the per-unit files. When terrain is configured, every rotated footprint corner is validated, the centre elevation is sampled, and the base is placed 0.05 m below the sampled surface. A terrain path inside `03_city_models` requires an adjacent valid, `completed` schema-version-2 manifest that declares the exact path as a `handoff` artifact. When terrain is unresolved, the manifest records `terrain_geometry_path = null`, terrain status `z=0 fallback`, and every base uses exactly `z=0`.
+The aggregate triangle count for each region equals the sum of that region across all per-unit STLs. The geometry stays separate from City4CFD meshes; downstream OpenFOAM preparation can consume the aggregate surface or the per-unit files. When terrain is configured, every rotated footprint corner is validated, the centre elevation is sampled, and the base is placed 0.05 m below the sampled surface. A terrain path inside `04_city_models` requires an adjacent valid, `completed` schema-version-2 manifest that declares the exact path as a `handoff` artifact. When terrain is unresolved, the manifest records `terrain_geometry_path = null`, terrain status `z=0 fallback`, and every base uses exactly `z=0`.
 
 ## Air-Purifier Tower Assets
 
