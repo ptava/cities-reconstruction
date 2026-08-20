@@ -29,13 +29,11 @@ from cities_reconstruction.config import (
     SupplementalShapefileConfig,
 )
 from cities_reconstruction.stage_contract import (
-    ArtifactKind,
     ArtifactReference,
     JsonValue,
     StageManifest,
     StageStatus,
     invalidate_stage_manifests,
-    publish_stage_manifest,
 )
 from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
@@ -46,6 +44,11 @@ from cities_reconstruction.stages.shapefiles_diagnostics import (
     supplemental_surface_input_diagnostics,
     supplemental_tree_input_diagnostics,
     urban_planning_diagnostics,
+)
+from cities_reconstruction.stages.shapefiles_publication import (
+    ShapefilesPublicationInput,
+    imagery_source_slug,
+    publish_shapefiles_manifest,
 )
 from cities_reconstruction.stages.shapefiles_rendering import (
     render_imagery_overlay_html,
@@ -438,44 +441,33 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
         loaded_supplements,
         urban_planning,
     )
-    artifacts = (
-        ArtifactReference("all-features", all_features_path, ArtifactKind.HANDOFF),
-        ArtifactReference("urban-planning", urban_planning_path, ArtifactKind.HANDOFF),
-        ArtifactReference("air-purifiers", air_purifiers_path, ArtifactKind.HANDOFF),
-        *(ArtifactReference(f"category-{category.replace('_', '-')}", path, ArtifactKind.HANDOFF) for category, path in sorted(category_paths.items())),
-        *(ArtifactReference(f"region-{region.replace('_', '-')}", path, ArtifactKind.HANDOFF) for region, path in sorted(region_paths.items())),
-        ArtifactReference("tag-inventory-query", tag_inventory_query_path, ArtifactKind.DIAGNOSTIC),
-        ArtifactReference("tag-inventory-raw", tag_inventory_raw_path, ArtifactKind.DIAGNOSTIC),
-        ArtifactReference("tag-inventory", tag_inventory_path, ArtifactKind.SUPPORTING),
-        ArtifactReference("overpass-query", query_path, ArtifactKind.DIAGNOSTIC),
-        ArtifactReference("overpass-raw", raw_path, ArtifactKind.DIAGNOSTIC),
-        ArtifactReference("geometry-diagnostics", diagnostics_path, ArtifactKind.DIAGNOSTIC),
-        ArtifactReference("non-contributing-features", diagnostics_geojson_path, ArtifactKind.DIAGNOSTIC),
-        ArtifactReference("imagery-diagnostics", imagery_diagnostics_path, ArtifactKind.DIAGNOSTIC),
-        ArtifactReference("imagery-overlay", imagery_overlay_path, ArtifactKind.DIAGNOSTIC),
-        *_imagery_evidence_artifacts(imagery_diagnostics),
-        ArtifactReference("summary", summary_path, ArtifactKind.SUPPORTING),
-        ArtifactReference("report", report_path, ArtifactKind.REPORT),
-        ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
-    )
-    manifest = publish_stage_manifest(
-        stage=STAGE_ID.value,
-        status=StageStatus.COMPLETED,
-        output_directory=output_dir,
-        report_path=report_path,
-        preview_path=preview_path,
-        input_state_fingerprint=_shapefiles_input_fingerprint(config, overpass_json_path),
-        artifacts=artifacts,
-        metrics={
-            "raw_element_count": raw_element_count,
-            "accepted_feature_count": len(reference_features),
-            "skipped_feature_count": skipped_count,
-        },
-        details={
-            "source": feature_source,
-            "categories": list[JsonValue](sorted(category_paths)),
-            "regions": list[JsonValue](sorted(region_paths)),
-        },
+    manifest = publish_shapefiles_manifest(
+        ShapefilesPublicationInput(
+            output_directory=output_dir,
+            report_path=report_path,
+            preview_path=preview_path,
+            input_state_fingerprint=_shapefiles_input_fingerprint(config, overpass_json_path),
+            all_features_path=all_features_path,
+            urban_planning_path=urban_planning_path,
+            air_purifiers_path=air_purifiers_path,
+            category_paths=category_paths,
+            region_paths=region_paths,
+            tag_inventory_query_path=tag_inventory_query_path,
+            tag_inventory_raw_path=tag_inventory_raw_path,
+            tag_inventory_path=tag_inventory_path,
+            query_path=query_path,
+            raw_path=raw_path,
+            diagnostics_path=diagnostics_path,
+            diagnostics_geojson_path=diagnostics_geojson_path,
+            imagery_diagnostics_path=imagery_diagnostics_path,
+            imagery_overlay_path=imagery_overlay_path,
+            imagery_diagnostics=imagery_diagnostics,
+            summary_path=summary_path,
+            raw_element_count=raw_element_count,
+            accepted_feature_count=len(reference_features),
+            skipped_feature_count=skipped_count,
+            source=feature_source,
+        )
     )
 
     return ShapefilesStageOutput(
@@ -626,40 +618,6 @@ def _shapefiles_runtime_configuration(config: AppConfig) -> dict[str, Any]:
             config.city_models.building_roof_default_base_height_m
         ),
     }
-
-
-def _imagery_evidence_artifacts(imagery_diagnostics: dict[str, Any]) -> tuple[ArtifactReference, ...]:
-    """List only imagery evidence files that this run actually generated."""
-
-    records = imagery_diagnostics.get("sources")
-    if not isinstance(records, list):
-        return ()
-    artifacts: list[ArtifactReference] = []
-    for index, record in enumerate(records, start=1):
-        if not isinstance(record, dict):
-            continue
-        source_name = _slug(str(record.get("name", f"source-{index}")))
-        candidates: list[tuple[str, str, ArtifactKind]] = [
-            ("request", "request_url_path", ArtifactKind.DIAGNOSTIC),
-        ]
-        if record.get("status") == "fetched":
-            candidates.append(("image", "image_path", ArtifactKind.SUPPORTING))
-        elif record.get("status") == "error":
-            candidates.append(("error", "error_path", ArtifactKind.DIAGNOSTIC))
-        for role, field, kind in candidates:
-            raw_path = record.get(field)
-            if not isinstance(raw_path, str):
-                continue
-            path = Path(raw_path)
-            if path.is_file():
-                artifacts.append(
-                    ArtifactReference(
-                        f"imagery-{source_name}-{index}-{role}",
-                        path,
-                        kind,
-                    )
-                )
-    return tuple(artifacts)
 
 
 def build_tag_inventory_query(config: AppConfig) -> str:
@@ -2516,7 +2474,7 @@ def _fetch_imagery_diagnostics(config: AppConfig, output_dir: Path) -> dict[str,
             continue
 
         url = _build_wms_getmap_url(source, bbox)
-        slug = _slug(source.name)
+        slug = imagery_source_slug(source.name)
         request_path = imagery_dir / f"{slug}_request.url"
         request_path.write_text(url, encoding="utf-8")
         image_path = imagery_dir / f"{slug}.{_image_extension(source.format)}"
@@ -2637,16 +2595,6 @@ def _looks_like_wms_error(payload: bytes, content_type: str) -> bool:
         or prefix.startswith(b"<html")
         or b"serviceexception" in prefix
     )
-
-
-def _slug(value: str) -> str:
-    normalized = []
-    for character in value.lower():
-        if character.isalnum():
-            normalized.append(character)
-        elif normalized and normalized[-1] != "_":
-            normalized.append("_")
-    return "".join(normalized).strip("_") or "imagery"
 
 
 def _increment(counts: dict[str, int], key: str) -> None:

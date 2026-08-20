@@ -23,10 +23,10 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 ## Current checkpoint
 
 - Last updated: 2026-08-20.
-- Baseline captured after: `b4be077 refactor: extract shapefiles presentation rendering` on `main`; `origin/main` remains at `1345dd2` pending push authorization.
+- Baseline captured after: `2f02431 refactor: extract shapefiles diagnostics` on `main`; `origin/main` remains at `1345dd2` pending push authorization.
 - The live checkout and Git history remain the source of truth; do not expect this document to contain the hash of the commit that updates the document itself.
-- Current change: the second behavior-preserving `shapefiles.py` decomposition slice delegates pure geometry, input, planning, and summary diagnostics while retaining all file writes, artifact assembly, manifest-last publication, and the public `plan()`/`run()` facade. `.codegraph/` remains intentionally untracked.
-- Verification baseline for the current review slice: Ruff clean; configured mypy clean across 12 source files; full-package mypy clean across 28 source files; 422 tests passed; branch coverage 85.63%; `git diff --check` clean.
+- Current change: the third behavior-preserving `shapefiles.py` decomposition slice delegates ordered artifact assembly, imagery-evidence discovery, and manifest-last publication while retaining all artifact writes and the public `plan()`/`run()` facade. `.codegraph/` remains intentionally untracked.
+- Verification baseline for the current review slice: Ruff clean; configured mypy clean across 13 source files; full-package mypy clean across 29 source files; 424 tests passed; branch coverage 85.71%; `git diff --check` clean.
 
 ## Baseline priorities and status
 
@@ -34,7 +34,7 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 | ---: | --- | --- | --- |
 | 1 | Authoritative pipeline model | Complete in `1345dd2` | `StageId` and the dependency-neutral layout catalogue own identity/order/path derivation; `StageSpec` owns operational metadata, selection policy, planners, typed runners, and CLI dispatch; the dependency-aware `run` command resolves and executes safe plans. |
 | 2 | Stable stage identity and unique output numbering | Complete | `StageId` is independent of order, and `number_name` derives unique `01` through `07` directories from the stored stage identity and sequence number without hard-coded numbered folder strings. |
-| 3 | Break up god modules | In progress | `shapefiles.py` is reduced to 2,653 lines after extracting 256 lines of pure diagnostics, 849 lines of HTML/SVG rendering, and 279 lines of Markdown reporting. `point_cloud.py` remains 2,100 lines and `city_models.py` 2,067. Preserve public `plan()`/`run()` facades while continuing focused slices. |
+| 3 | Break up god modules | In progress | `shapefiles.py` is reduced to 2,601 lines after extracting 256 lines of pure diagnostics, 178 lines of publication orchestration, 849 lines of HTML/SVG rendering, and 279 lines of Markdown reporting. `point_cloud.py` remains 2,100 lines and `city_models.py` 2,067. Preserve public `plan()`/`run()` facades while continuing focused slices. |
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
 | 5 | Transactional output handling | Partial | Manifest-last is universal. Locks and atomic artifact writers are not yet universal in shapefiles, trees, and visual enrichment. |
 | 6 | Declarative uniformly typed CLI | Partial | Registry dispatch and immutable CLI-independent `StageRunOptions` exist. Stage-focused argument registration and one application exception hierarchy remain. |
@@ -96,14 +96,15 @@ Status: complete in `1345dd2`.
 
 ### Checkpoint 4: Decompose large stage modules
 
-Status: presentation extraction committed in `b4be077`; pure diagnostics extraction implemented in the current review slice.
+Status: presentation extraction committed in `b4be077`; pure diagnostics extraction committed in `2f02431`; publication extraction implemented in the current review slice.
 
 - Use several behavior-preserving commits: extract HTML/report rendering first, then diagnostics/publication, input adapters/parsers, and domain transformations/validation.
 - Work through shapefiles, point-cloud, and City4CFD separately; never combine all three into one commit.
 - Keep each stage's public `plan()` and `run()` facade stable.
 - Completed presentation slice: `shapefiles_rendering.py` owns self-contained HTML/SVG feedback and `shapefiles_reporting.py` owns Markdown reporting.
-- Current diagnostics slice: `shapefiles_diagnostics.py` owns pure geometry, supplemental-input, urban-planning, and aggregate-summary diagnostics; `run()` still writes every diagnostic artifact and publishes the manifest last.
-- Proposed commit: `refactor: extract shapefiles diagnostics`.
+- Completed diagnostics slice: `shapefiles_diagnostics.py` owns pure geometry, supplemental-input, urban-planning, and aggregate-summary diagnostics; `run()` still writes every diagnostic artifact.
+- Current publication slice: `shapefiles_publication.py` owns the typed publication input, stable artifact ordering and naming, imagery-evidence discovery, metrics/details assembly, and the final manifest publication call. `run()` invokes it only after every artifact write completes.
+- Proposed commit: `refactor: extract shapefiles publication`.
 
 ### Checkpoint 5: Complete transactional publication
 
@@ -161,4 +162,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-After the current review slice is approved and committed, continue Checkpoint 4 with a behavior-preserving extraction of shapefiles artifact assembly and publication orchestration. Keep `shapefiles.py`'s public `plan()` and `run()` facade stable, retain all artifact writes before the manifest, and do not add transactional locking or atomic artifact changes until Checkpoint 5.
+After the current review slice is approved and committed, continue Checkpoint 4 with a behavior-preserving extraction of shapefiles input adapters and parsers. Keep `shapefiles.py`'s public `plan()` and `run()` facade stable, and do not mix domain transformations or transactional locking and atomic artifact changes into that boundary-focused slice.

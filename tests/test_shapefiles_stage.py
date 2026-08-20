@@ -14,7 +14,7 @@ from shapely.geometry import Point
 
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stage_contract import StageOutput
-from cities_reconstruction.stages import shapefiles
+from cities_reconstruction.stages import shapefiles, shapefiles_publication
 from tests.config_helpers import DEFAULT_SHAPEFILES_BLOCK, write_complete_config
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -353,7 +353,7 @@ def test_run_with_cached_overpass_json_writes_expected_artifacts(
 
     config = load_config(config_path)
     published: list[Path] = []
-    original_publish = shapefiles.publish_stage_manifest
+    original_publish = shapefiles_publication.publish_stage_manifest
 
     def observe_publication(**kwargs):
         assert kwargs["report_path"].is_file()
@@ -361,7 +361,7 @@ def test_run_with_cached_overpass_json_writes_expected_artifacts(
         published.append(kwargs["output_directory"] / "manifest.json")
         return original_publish(**kwargs)
 
-    monkeypatch.setattr(shapefiles, "publish_stage_manifest", observe_publication)
+    monkeypatch.setattr(shapefiles_publication, "publish_stage_manifest", observe_publication)
     result = shapefiles.run(config, overpass_json_path=raw_path)
 
     assert isinstance(result, StageOutput)
