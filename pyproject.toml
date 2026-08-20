@@ -47,6 +47,7 @@ include = [
   "src/cities_reconstruction/artifacts.py",
   "src/cities_reconstruction/cli.py",
   "src/cities_reconstruction/pipeline.py",
+  "src/cities_reconstruction/stage_runtime.py",
   "src/cities_reconstruction/stage_contract.py",
   "src/cities_reconstruction/stage_result.py",
   "tests/test_cli.py",
@@ -65,6 +66,7 @@ files = [
   "src/cities_reconstruction/artifacts.py",
   "src/cities_reconstruction/cli.py",
   "src/cities_reconstruction/pipeline.py",
+  "src/cities_reconstruction/stage_runtime.py",
   "src/cities_reconstruction/stage_contract.py",
   "src/cities_reconstruction/stage_result.py",
 ]

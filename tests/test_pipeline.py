@@ -47,6 +47,14 @@ def test_stage_registry_defines_order_and_executability() -> None:
     assert STAGE_BY_NAME["openfoam"].manifest_filename is None
 
 
+def test_stage_registry_owns_executable_runner_bindings() -> None:
+    executable_specs = tuple(spec for spec in STAGE_SPECS if spec.executable)
+
+    assert executable_specs
+    assert all(callable(spec.runner) for spec in executable_specs)
+    assert STAGE_BY_NAME["openfoam"].runner is None
+
+
 def test_point_cloud_registry_uses_shapefiles_as_default_not_dependency() -> None:
     spec = STAGE_BY_NAME["point-cloud"]
 

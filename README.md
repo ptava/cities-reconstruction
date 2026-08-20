@@ -79,6 +79,8 @@ The project is organized as a set of small modules that match the intended compu
 
 External systems such as Overpass, City4CFD, and OpenFOAM are kept behind stage modules. This keeps the CLI and configuration layer testable while domain-specific adapters are added incrementally.
 
+`StageSpec` is the authoritative registry for stage order, maturity, dependencies, inputs, output directories, planners, and execution adapters. The CLI derives executable stage choices and `run-stage` dispatch from that registry; stage-specific CLI overrides are applied by the focused runtime adapters in `stage_runtime.py`.
+
 ### Current Stage Status
 
 The application currently executes one selected stage at a time with `run-stage`; it does not yet provide an automatic end-to-end runner. The stage registry distinguishes a hard dependency from a default artifact producer, so a user-provided input can replace a normal upstream handoff where documented.
@@ -146,6 +148,7 @@ This route is implemented only as an external adapter. The repository license/EU
 │       ├── adapters/
 │       ├── geometry/
 │       ├── pipeline.py
+│       ├── stage_runtime.py
 │       └── stages/
 ├── tools/
 │   ├── audit_supplemental_planning_migration.py
@@ -178,7 +181,7 @@ uv run pytest -q --cov=cities_reconstruction --cov-report=term-missing
 uv run python tools/audit_supplemental_planning_migration.py
 ```
 
-Ruff and mypy initially cover the pipeline, CLI, artifact, stage-result, and City4CFD adapter boundaries plus their focused tests. This scope is intentionally expanded as the larger stage modules are decomposed; coverage measures the complete `cities_reconstruction` package and enforces the configured baseline.
+Ruff and mypy initially cover the pipeline, CLI, runtime-adapter, artifact, stage-result, and City4CFD adapter boundaries plus their focused tests. This scope is intentionally expanded as the larger stage modules are decomposed; coverage measures the complete `cities_reconstruction` package and enforces the configured baseline.
 
 Audit active source, tests, configuration, public documentation, and maintained output snapshots for removed supplemental/planning contracts:
 

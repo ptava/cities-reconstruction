@@ -5,23 +5,18 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Callable, Sequence
-from dataclasses import replace
+from collections.abc import Sequence
 from pathlib import Path
 
 from .config import (
     AppConfig,
     ConfigError,
-    SupplementalShapefileConfig,
     load_config,
-    validate_config,
 )
-from .pipeline import EXECUTABLE_STAGE_NAMES, STAGE_NAMES, dry_run
+from .pipeline import EXECUTABLE_STAGE_NAMES, STAGE_BY_NAME, STAGE_NAMES, dry_run
 from .stage_contract import StageOutput, StageStatus
 from .stage_result import StageResult
-from .stages import air_purifiers, city_models, point_cloud, shapefiles, trees, visual_enrichment
-
-RunStageHandler = Callable[[AppConfig, argparse.Namespace], StageOutput]
+from .stage_runtime import StageRunOptions
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -191,7 +186,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("--building-footprints-geojson is valid only for the point-cloud stage", file=sys.stderr)
             return 2
         try:
-            result = RUN_STAGE_HANDLERS[args.stage](config, args)
+            runner = STAGE_BY_NAME[args.stage].runner
+            if runner is None:
+                parser.error(f"Stage is not executable: {args.stage}")
+            result = runner(config, _stage_run_options(args))
         except ConfigError as exc:
             print(f"Configuration error: {exc}", file=sys.stderr)
             return 2
@@ -211,106 +209,57 @@ def _add_config_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _run_shapefiles(
-    config: AppConfig,
-    args: argparse.Namespace,
-) -> StageOutput:
-    config = _apply_shapefile_input_overrides(config, args)
-    return shapefiles.run(config, overpass_json_path=args.overpass_json)
-
-
-def _run_visual_enrichment(
-    config: AppConfig,
-    args: argparse.Namespace,
-) -> StageOutput:
-    return visual_enrichment.run(
-        config,
-        segmentation_geojson_path=args.segmentation_geojson,
-        sat2lod2_geojson_path=args.sat2lod2_geojson,
+def _stage_run_options(args: argparse.Namespace) -> StageRunOptions:
+    flow_direction = (
+        None
+        if args.city_models_flow_direction is None
+        else tuple(args.city_models_flow_direction)
     )
-
-
-def _run_point_cloud(
-    config: AppConfig,
-    args: argparse.Namespace,
-) -> StageOutput:
-    if args.tree_canopy_overlay is not None:
-        config = replace(
-            config,
-            inputs=replace(
-                config.inputs,
-                tree_canopy_overlay_path=args.tree_canopy_overlay,
-            ),
-        )
-    building_footprints_path = args.building_footprints_geojson
-    if (
-        building_footprints_path is not None
-        and not building_footprints_path.is_absolute()
-    ):
-        building_footprints_path = (
-            config.path.parent / building_footprints_path
-        ).resolve()
-    return point_cloud.run(
-        config,
-        building_footprints_path=building_footprints_path,
-    )
-
-
-def _run_city_models(
-    config: AppConfig,
-    args: argparse.Namespace,
-) -> StageOutput:
-    return city_models.run(_apply_city_models_overrides(config, args))
-
-
-def _run_trees(
-    config: AppConfig,
-    args: argparse.Namespace,
-) -> StageOutput:
-    if args.tree_terrain_geometry is not None:
-        terrain_geometry_path = args.tree_terrain_geometry
-        if not terrain_geometry_path.is_absolute():
-            terrain_geometry_path = (
-                config.path.parent / terrain_geometry_path
-            ).resolve()
-        config = replace(
-            config,
-            inputs=replace(
-                config.inputs,
-                tree_terrain_geometry_path=terrain_geometry_path,
-            ),
-        )
-    return trees.run(config)
-
-
-def _run_air_purifiers(
-    config: AppConfig,
-    args: argparse.Namespace,
-) -> StageOutput:
-    return air_purifiers.run(
-        config,
-        model_library_path=_resolve_config_relative_path(config, args.model_library),
-        terrain_geometry_path=_resolve_config_relative_path(
-            config,
-            args.terrain_geometry,
+    return StageRunOptions(
+        overpass_json=args.overpass_json,
+        streets_shapefile=args.streets_shapefile,
+        streets_shapefile_crs=args.streets_shapefile_crs,
+        green_areas_shapefile=args.green_areas_shapefile,
+        green_areas_shapefile_crs=args.green_areas_shapefile_crs,
+        segmentation_geojson=args.segmentation_geojson,
+        sat2lod2_geojson=args.sat2lod2_geojson,
+        tree_canopy_overlay=args.tree_canopy_overlay,
+        building_footprints_geojson=args.building_footprints_geojson,
+        tree_terrain_geometry=args.tree_terrain_geometry,
+        model_library=args.model_library,
+        terrain_geometry=args.terrain_geometry,
+        city_models_lod=args.city_models_lod,
+        city_models_top_height=args.city_models_top_height,
+        city_models_bnd_type_bpg=args.city_models_bnd_type_bpg,
+        city_models_bpg_blockage_ratio=args.city_models_bpg_blockage_ratio,
+        city_models_flow_direction=flow_direction,
+        city_models_buffer_region=args.city_models_buffer_region,
+        city_models_reconstruct_boundaries=args.city_models_reconstruct_boundaries,
+        city_models_terrain_thinning=args.city_models_terrain_thinning,
+        city_models_smooth_terrain_iterations=(
+            args.city_models_smooth_terrain_iterations
         ),
-    )
-
-
-RUN_STAGE_HANDLERS: dict[str, RunStageHandler] = dict(
-    zip(
-        EXECUTABLE_STAGE_NAMES,
-        (
-            _run_shapefiles,
-            _run_visual_enrichment,
-            _run_point_cloud,
-            _run_city_models,
-            _run_trees,
-            _run_air_purifiers,
+        city_models_smooth_terrain_max_pts=args.city_models_smooth_terrain_max_pts,
+        city_models_building_percentile=args.city_models_building_percentile,
+        city_models_edge_max_len=args.city_models_edge_max_len,
+        city_models_reconstruction_influence_region=(
+            args.city_models_reconstruction_influence_region
         ),
-        strict=True,
+        city_models_reconstruction_complexity_factor=(
+            args.city_models_reconstruction_complexity_factor
+        ),
+        city_models_reconstruction_validate=(
+            args.city_models_reconstruction_validate
+        ),
+        city_models_filters_min_area=args.city_models_filters_min_area,
+        city_models_filters_min_height=args.city_models_filters_min_height,
+        city_models_output_file_name=args.city_models_output_file_name,
+        city_models_output_format=args.city_models_output_format,
+        city_models_output_separately=args.city_models_output_separately,
+        city_models_output_log=args.city_models_output_log,
+        city_models_log_file=args.city_models_log_file,
+        city_models_docker_image=args.city_models_docker_image,
     )
-)
 
 
 def _emit_stage_result(
@@ -326,61 +275,6 @@ def _emit_stage_result(
 
 def _stage_exit_code(result: StageOutput) -> int:
     return 0 if result.status is StageStatus.COMPLETED else 1
-
-
-def _resolve_config_relative_path(
-    config: AppConfig,
-    path: Path | None,
-) -> Path | None:
-    if path is None or path.is_absolute():
-        return path
-    return (config.path.parent / path).resolve()
-
-
-def _apply_shapefile_input_overrides(
-    config: AppConfig,
-    args: argparse.Namespace,
-) -> AppConfig:
-    shapefiles_config = config.shapefiles
-    specifications = (
-        ("streets", "roads", "street_area"),
-        ("green_areas", "green_areas", "green_area"),
-    )
-    for name, category, group_tag in specifications:
-        path = getattr(args, f"{name}_shapefile")
-        crs = getattr(args, f"{name}_shapefile_crs")
-        existing = next((surface for surface in shapefiles_config.supplemental if surface.name == name), None)
-        if path is None and crs is None:
-            continue
-        if path is None:
-            if existing is None:
-                continue
-            path = existing.path
-        elif not path.is_absolute():
-            path = (config.path.parent / path).resolve()
-        surface = SupplementalShapefileConfig(
-            name=name,
-            path=path,
-            crs=(crs or (existing.crs if existing is not None else config.region.crs)).upper(),
-            category=category,
-            group_tag=group_tag,
-            enabled=True,
-        )
-        surfaces = [item for item in shapefiles_config.supplemental if item.name != name]
-        surfaces.append(surface)
-        precedence = list(shapefiles_config.surface_precedence)
-        selector = f"supplemental:{name}"
-        if selector not in precedence:
-            if category in precedence:
-                precedence.insert(precedence.index(category), selector)
-            else:
-                precedence.append(selector)
-        shapefiles_config = replace(
-            shapefiles_config,
-            supplemental=tuple(surfaces),
-            surface_precedence=tuple(precedence),
-        )
-    return replace(config, shapefiles=shapefiles_config)
 
 
 def _add_city_models_arguments(parser: argparse.ArgumentParser) -> None:
@@ -500,80 +394,6 @@ def _add_city_models_arguments(parser: argparse.ArgumentParser) -> None:
         "--city-models-docker-image",
         help="Override the Docker image used by the City4CFD fallback script.",
     )
-
-
-def _apply_city_models_overrides(
-    config: AppConfig,
-    args: argparse.Namespace,
-) -> AppConfig:
-    city_models_config = config.city_models
-    smooth_terrain = city_models_config.smooth_terrain
-    reconstruction_region = city_models_config.reconstruction_region
-    filters = city_models_config.filters
-
-    if args.city_models_lod is not None:
-        city_models_config = replace(city_models_config, lod=args.city_models_lod)
-    if args.city_models_top_height is not None:
-        city_models_config = replace(city_models_config, top_height=args.city_models_top_height)
-    if args.city_models_bnd_type_bpg is not None:
-        city_models_config = replace(city_models_config, bnd_type_bpg=args.city_models_bnd_type_bpg)
-    if args.city_models_bpg_blockage_ratio is not None:
-        city_models_config = replace(city_models_config, bpg_blockage_ratio=args.city_models_bpg_blockage_ratio)
-    if args.city_models_flow_direction is not None:
-        city_models_config = replace(city_models_config, flow_direction=tuple(args.city_models_flow_direction))
-    if args.city_models_buffer_region is not None:
-        city_models_config = replace(city_models_config, buffer_region=args.city_models_buffer_region)
-    if args.city_models_reconstruct_boundaries is not None:
-        city_models_config = replace(
-            city_models_config,
-            reconstruct_boundaries=args.city_models_reconstruct_boundaries,
-        )
-    if args.city_models_terrain_thinning is not None:
-        city_models_config = replace(city_models_config, terrain_thinning=args.city_models_terrain_thinning)
-    if args.city_models_smooth_terrain_iterations is not None:
-        smooth_terrain = replace(smooth_terrain, iterations=args.city_models_smooth_terrain_iterations)
-    if args.city_models_smooth_terrain_max_pts is not None:
-        smooth_terrain = replace(smooth_terrain, max_pts=args.city_models_smooth_terrain_max_pts)
-    if args.city_models_building_percentile is not None:
-        city_models_config = replace(city_models_config, building_percentile=args.city_models_building_percentile)
-    if args.city_models_edge_max_len is not None:
-        city_models_config = replace(city_models_config, edge_max_len=args.city_models_edge_max_len)
-    if args.city_models_reconstruction_influence_region is not None:
-        reconstruction_region = replace(
-            reconstruction_region,
-            influence_region_m=args.city_models_reconstruction_influence_region,
-        )
-    if args.city_models_reconstruction_complexity_factor is not None:
-        reconstruction_region = replace(
-            reconstruction_region,
-            complexity_factor=args.city_models_reconstruction_complexity_factor,
-        )
-    if args.city_models_reconstruction_validate is not None:
-        reconstruction_region = replace(reconstruction_region, validate=args.city_models_reconstruction_validate)
-    if args.city_models_filters_min_area is not None:
-        filters = replace(filters, min_area=args.city_models_filters_min_area)
-    if args.city_models_filters_min_height is not None:
-        filters = replace(filters, min_height=args.city_models_filters_min_height)
-    if args.city_models_output_file_name is not None:
-        city_models_config = replace(city_models_config, output_file_name=args.city_models_output_file_name)
-    if args.city_models_output_format is not None:
-        city_models_config = replace(city_models_config, output_format=args.city_models_output_format)
-    if args.city_models_output_separately is not None:
-        city_models_config = replace(city_models_config, output_separately=args.city_models_output_separately)
-    if args.city_models_output_log is not None:
-        city_models_config = replace(city_models_config, output_log=args.city_models_output_log)
-    if args.city_models_log_file is not None:
-        city_models_config = replace(city_models_config, log_file=args.city_models_log_file)
-    if args.city_models_docker_image is not None:
-        city_models_config = replace(city_models_config, docker_image=args.city_models_docker_image)
-
-    city_models_config = replace(
-        city_models_config,
-        smooth_terrain=smooth_terrain,
-        reconstruction_region=reconstruction_region,
-        filters=filters,
-    )
-    return validate_config(replace(config, city_models=city_models_config))
 
 
 def _print_dry_run(

@@ -3,14 +3,16 @@ from __future__ import annotations
 import json
 import struct
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 
 from cities_reconstruction.cli import _stage_exit_code, main
 from cities_reconstruction.config import ConfigError
+from cities_reconstruction.pipeline import STAGE_BY_NAME
 from cities_reconstruction.stage_contract import ArtifactReference, JsonValue, StageManifest, StageOutput, StageStatus
+from cities_reconstruction.stage_runtime import StageRunOptions
 from cities_reconstruction.stages import air_purifiers, point_cloud
 from tests.config_helpers import write_complete_config
 
@@ -134,11 +136,43 @@ def test_run_stage_json_emits_shared_manifest_mapping(tmp_path: Path, monkeypatc
     config_path = tmp_path / "config.toml"
     write_complete_config(config_path, output_root=tmp_path / "outputs")
     result = _fake_stage_output()
-    monkeypatch.setattr("cities_reconstruction.cli.city_models.run", lambda _config: result)
+    monkeypatch.setattr(
+        "cities_reconstruction.stage_runtime.city_models.run",
+        lambda _config: result,
+    )
 
     exit_code = main(["run-stage", "--config", str(config_path), "city-models", "--json"])
 
     assert exit_code == 0
+    assert json.loads(capsys.readouterr().out) == result.to_dict()
+
+
+def test_run_stage_dispatches_runner_owned_by_registry(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+    result = _fake_stage_output()
+    received_options: list[StageRunOptions] = []
+
+    def registry_runner(_config, options):
+        received_options.append(options)
+        return result
+
+    monkeypatch.setitem(
+        STAGE_BY_NAME,
+        "trees",
+        replace(STAGE_BY_NAME["trees"], runner=registry_runner),
+    )
+
+    exit_code = main(
+        ["run-stage", "--config", str(config_path), "trees", "--json"]
+    )
+
+    assert exit_code == 0
+    assert received_options == [StageRunOptions()]
     assert json.loads(capsys.readouterr().out) == result.to_dict()
 
 
@@ -214,7 +248,10 @@ def test_run_stage_shapefiles_with_cached_overpass_json(tmp_path: Path, monkeypa
         captured_paths.append(overpass_json_path)
         return result
 
-    monkeypatch.setattr("cities_reconstruction.cli.shapefiles.run", fake_run)
+    monkeypatch.setattr(
+        "cities_reconstruction.stage_runtime.shapefiles.run",
+        fake_run,
+    )
 
     exit_code = main(
         [
@@ -249,7 +286,10 @@ def test_run_stage_shapefiles_accepts_supplemental_shapefile_overrides(
         captured_configs.append(config)
         return _fake_stage_output()
 
-    monkeypatch.setattr("cities_reconstruction.cli.shapefiles.run", fake_run)
+    monkeypatch.setattr(
+        "cities_reconstruction.stage_runtime.shapefiles.run",
+        fake_run,
+    )
 
     exit_code = main(
         [
@@ -314,7 +354,10 @@ def test_run_stage_visual_enrichment_with_segmentation_geojson(tmp_path: Path, m
         captured_paths["sat2lod2"] = sat2lod2_geojson_path
         return result
 
-    monkeypatch.setattr("cities_reconstruction.cli.visual_enrichment.run", fake_run)
+    monkeypatch.setattr(
+        "cities_reconstruction.stage_runtime.visual_enrichment.run",
+        fake_run,
+    )
 
     exit_code = main(
         [
@@ -436,7 +479,10 @@ def test_run_stage_trees_json(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "config.toml"
     write_complete_config(config_path, output_root=tmp_path / "outputs", name="CLI Trees Fixture")
     result = _fake_stage_output(metrics={"tree_count": 1})
-    monkeypatch.setattr("cities_reconstruction.cli.trees.run", lambda _config: result)
+    monkeypatch.setattr(
+        "cities_reconstruction.stage_runtime.trees.run",
+        lambda _config: result,
+    )
 
     exit_code = main(["run-stage", "--config", str(config_path), "trees", "--json"])
 
@@ -456,7 +502,7 @@ def test_run_stage_trees_accepts_terrain_geometry_override(tmp_path: Path, monke
         captured_configs.append(config)
         return _fake_stage_output()
 
-    monkeypatch.setattr("cities_reconstruction.cli.trees.run", fake_run)
+    monkeypatch.setattr("cities_reconstruction.stage_runtime.trees.run", fake_run)
 
     exit_code = main(
         [
@@ -619,7 +665,10 @@ def test_run_stage_city_models_accepts_argument_overrides(tmp_path: Path, monkey
         captured_configs.append(config)
         return _fake_stage_output()
 
-    monkeypatch.setattr("cities_reconstruction.cli.city_models.run", fake_run)
+    monkeypatch.setattr(
+        "cities_reconstruction.stage_runtime.city_models.run",
+        fake_run,
+    )
 
     exit_code = main(
         [
@@ -660,7 +709,10 @@ def test_run_stage_city_models_returns_one_after_printing_external_failure(
     config_path = tmp_path / "config.toml"
     write_complete_config(config_path, output_root=tmp_path / "outputs")
     result = _fake_stage_output(StageStatus.FAILED_EXTERNAL_EXECUTION)
-    monkeypatch.setattr("cities_reconstruction.cli.city_models.run", lambda _config: result)
+    monkeypatch.setattr(
+        "cities_reconstruction.stage_runtime.city_models.run",
+        lambda _config: result,
+    )
 
     exit_code = main(["run-stage", "--config", str(config_path), "city-models", "--json"])
 
@@ -693,7 +745,10 @@ def test_city_models_toml_and_cli_validation_have_identical_errors_and_do_not_ru
         stage_called = True
         raise AssertionError("invalid effective config must not run the stage")
 
-    monkeypatch.setattr("cities_reconstruction.cli.city_models.run", fail_if_called)
+    monkeypatch.setattr(
+        "cities_reconstruction.stage_runtime.city_models.run",
+        fail_if_called,
+    )
     cli_exit = main(
         [
             "run-stage",
@@ -719,7 +774,7 @@ def test_city_models_cli_rejects_non_finite_override_before_stage(tmp_path: Path
     config_path = tmp_path / "config.toml"
     write_complete_config(config_path, output_root=tmp_path / "outputs")
     monkeypatch.setattr(
-        "cities_reconstruction.cli.city_models.run",
+        "cities_reconstruction.stage_runtime.city_models.run",
         lambda _config: (_ for _ in ()).throw(AssertionError("stage must not run")),
     )
 

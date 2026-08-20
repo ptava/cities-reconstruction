@@ -6,8 +6,10 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from . import stage_runtime
 from .config import AppConfig, ConfigError
 from .stage_result import StageResult
+from .stage_runtime import StageRunner
 from .stages import air_purifiers, city_models, openfoam, point_cloud, shapefiles, trees, visual_enrichment
 
 StagePlanner = Callable[[AppConfig], StageResult]
@@ -41,10 +43,16 @@ class StageSpec:
     maturity: StageMaturity
     output_directory: str
     planner: StagePlanner
-    executable: bool
+    runner: StageRunner | None
     manifest_filename: str | None = None
     hard_dependencies: tuple[str, ...] = ()
     inputs: tuple[StageInputSpec, ...] = ()
+
+    @property
+    def executable(self) -> bool:
+        """Return whether this stage has an execution adapter."""
+
+        return self.runner is not None
 
     def input(self, name: str) -> StageInputSpec:
         """Return a named input contract or raise ``KeyError``."""
@@ -62,7 +70,7 @@ STAGE_SPECS = (
         maturity=StageMaturity.IMPLEMENTED,
         output_directory="01_shapefiles",
         planner=shapefiles.plan,
-        executable=True,
+        runner=stage_runtime.run_shapefiles,
         manifest_filename="manifest.json",
         inputs=(
             StageInputSpec("feature-data", required=True, override="--overpass-json"),
@@ -74,7 +82,7 @@ STAGE_SPECS = (
         maturity=StageMaturity.REVIEW_ONLY,
         output_directory="02_visual_enrichment",
         planner=visual_enrichment.plan,
-        executable=True,
+        runner=stage_runtime.run_visual_enrichment,
         manifest_filename="manifest.json",
         hard_dependencies=("shapefiles",),
         inputs=(
@@ -89,7 +97,7 @@ STAGE_SPECS = (
         maturity=StageMaturity.IMPLEMENTED,
         output_directory="02_point_cloud",
         planner=point_cloud.plan,
-        executable=True,
+        runner=stage_runtime.run_point_cloud,
         manifest_filename="manifest.json",
         inputs=(
             StageInputSpec("dtm-directory", required=True, override="inputs.dtm_directory"),
@@ -118,7 +126,7 @@ STAGE_SPECS = (
         maturity=StageMaturity.IMPLEMENTED,
         output_directory="03_city_models",
         planner=city_models.plan,
-        executable=True,
+        runner=stage_runtime.run_city_models,
         manifest_filename="manifest.json",
         hard_dependencies=("shapefiles", "point-cloud"),
         inputs=(
@@ -132,7 +140,7 @@ STAGE_SPECS = (
         maturity=StageMaturity.INCOMPLETE,
         output_directory="04_trees",
         planner=trees.plan,
-        executable=True,
+        runner=stage_runtime.run_trees,
         manifest_filename="manifest.json",
         hard_dependencies=("shapefiles",),
         inputs=(
@@ -146,7 +154,7 @@ STAGE_SPECS = (
         maturity=StageMaturity.IMPLEMENTED,
         output_directory="05_air_purifiers",
         planner=air_purifiers.plan,
-        executable=True,
+        runner=stage_runtime.run_air_purifiers,
         manifest_filename="manifest.json",
         hard_dependencies=("shapefiles",),
         inputs=(
@@ -161,7 +169,7 @@ STAGE_SPECS = (
         maturity=StageMaturity.PLANNED,
         output_directory="05_openfoam_case",
         planner=openfoam.plan,
-        executable=False,
+        runner=None,
         manifest_filename=None,
         hard_dependencies=("city-models", "trees", "air-purifiers"),
     ),
