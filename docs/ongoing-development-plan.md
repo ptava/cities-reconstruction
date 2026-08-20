@@ -23,10 +23,10 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 ## Current checkpoint
 
 - Last updated: 2026-08-20.
-- Baseline captured after: `370f29d refactor: derive unique pipeline stage directories` on `main` and `origin/main`.
+- Baseline captured after: `1345dd2 feat: add dependency-aware pipeline execution` on `main` and `origin/main`.
 - The live checkout and Git history remain the source of truth; do not expect this document to contain the hash of the commit that updates the document itself.
-- Current change: dependency-aware default, optional, and targeted pipeline execution is implemented and verified for review. `.codegraph/` remains intentionally untracked.
-- Verification baseline for the current review slice: Ruff clean; configured mypy clean across 9 source files; full-package mypy clean across 25 source files; 415 tests passed; branch coverage 85.58%; `git diff --check` clean.
+- Current change: the first behavior-preserving `shapefiles.py` decomposition slice delegates Markdown reporting and self-contained HTML/SVG feedback to focused modules while retaining the public `plan()`/`run()` facade. `.codegraph/` remains intentionally untracked.
+- Verification baseline for the current review slice: Ruff clean; configured mypy clean across 11 source files; full-package mypy clean across 27 source files; 418 tests passed; branch coverage 85.60%; `git diff --check` clean.
 
 ## Baseline priorities and status
 
@@ -34,7 +34,7 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 | ---: | --- | --- | --- |
 | 1 | Authoritative pipeline model | Complete in current change | `StageId` and the dependency-neutral layout catalogue own identity/order/path derivation; `StageSpec` owns operational metadata, selection policy, planners, typed runners, and CLI dispatch; the dependency-aware `run` command resolves and executes safe plans. |
 | 2 | Stable stage identity and unique output numbering | Complete | `StageId` is independent of order, and `number_name` derives unique `01` through `07` directories from the stored stage identity and sequence number without hard-coded numbered folder strings. |
-| 3 | Break up god modules | Not started | `shapefiles.py` is 3,974 lines, `point_cloud.py` 2,093, and `city_models.py` 2,060. Preserve public `plan()`/`run()` facades while extracting focused modules. |
+| 3 | Break up god modules | In progress | `shapefiles.py` is reduced to 2,889 lines after extracting 849 lines of HTML/SVG rendering and 279 lines of Markdown reporting. `point_cloud.py` remains 2,100 lines and `city_models.py` 2,067. Preserve public `plan()`/`run()` facades while continuing focused slices. |
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
 | 5 | Transactional output handling | Partial | Manifest-last is universal. Locks and atomic artifact writers are not yet universal in shapefiles, trees, and visual enrichment. |
 | 6 | Declarative uniformly typed CLI | Partial | Registry dispatch and immutable CLI-independent `StageRunOptions` exist. Stage-focused argument registration and one application exception hierarchy remain. |
@@ -96,9 +96,13 @@ Status: implemented and verified in the current review slice.
 
 ### Checkpoint 4: Decompose large stage modules
 
+Status: first shapefiles presentation slice implemented and verified in the current review slice.
+
 - Use several behavior-preserving commits: extract HTML/report rendering first, then diagnostics/publication, input adapters/parsers, and domain transformations/validation.
 - Work through shapefiles, point-cloud, and City4CFD separately; never combine all three into one commit.
 - Keep each stage's public `plan()` and `run()` facade stable.
+- Current slice: `shapefiles_rendering.py` owns self-contained HTML/SVG feedback, `shapefiles_reporting.py` owns Markdown reporting, and direct rendering tests protect their observable output.
+- Proposed commit: `refactor: extract shapefiles presentation rendering`.
 
 ### Checkpoint 5: Complete transactional publication
 
@@ -156,4 +160,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-After the current review slice is approved and committed, begin Checkpoint 4 with one behavior-preserving extraction from `shapefiles.py`; keep its public `plan()` and `run()` facade stable and do not combine point-cloud or City4CFD decomposition into the same commit.
+After the current review slice is approved and committed, continue Checkpoint 4 by extracting shapefiles diagnostics/publication responsibilities. Keep `shapefiles.py`'s public `plan()` and `run()` facade stable, preserve manifest-last publication behavior, and do not combine point-cloud or City4CFD decomposition into the same commit.

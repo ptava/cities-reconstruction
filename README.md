@@ -79,6 +79,8 @@ The project is organized as a set of small modules that match the intended compu
 
 External systems such as Overpass, City4CFD, and OpenFOAM are kept behind stage modules. This keeps the CLI and configuration layer testable while domain-specific adapters are added incrementally.
 
+The shapefiles stage keeps `plan()` and `run()` as its stable public facade while delegating generated Markdown reports to `shapefiles_reporting.py` and self-contained HTML/SVG feedback to `shapefiles_rendering.py`. Retrieval, classification, diagnostics construction, and artifact publication remain in the stage facade until their own behavior-preserving decomposition slices.
+
 `StageId` provides stable stage identity independently of presentation order. The dependency-neutral stage-layout catalogue stores only each identity and sequence number; its `number_name` property composes directory names such as `03_point_cloud` from those two values. `StageSpec` adds maturity, automatic-selection policy, dependencies, inputs, planners, and execution adapters without duplicating layout metadata. The CLI derives executable choices, dependency-aware `run` plans, and `run-stage` dispatch from that registry; stage-specific CLI overrides are applied by the focused runtime adapters in `stage_runtime.py`.
 
 ### Current Stage Status
@@ -152,6 +154,9 @@ This route is implemented only as an external adapter. The repository license/EU
 │       ├── stage_layout.py
 │       ├── stage_runtime.py
 │       └── stages/
+│           ├── shapefiles.py
+│           ├── shapefiles_rendering.py
+│           └── shapefiles_reporting.py
 ├── tools/
 │   └── build_air_purifier_tower_models.py
 └── tests/
