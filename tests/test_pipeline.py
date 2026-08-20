@@ -7,11 +7,13 @@ import pytest
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.pipeline import (
     EXECUTABLE_STAGE_NAMES,
+    OPTIONAL_STAGE_NAMES,
     STAGE_BY_NAME,
     STAGE_NAMES,
     STAGE_SPECS,
     StageInputSpec,
     StageMaturity,
+    StageSelection,
     dry_run,
 )
 from cities_reconstruction.stage_layout import STAGE_LAYOUT_BY_ID, StageId
@@ -48,6 +50,22 @@ def test_stage_registry_defines_order_and_executability() -> None:
     assert all(spec.layout is STAGE_LAYOUT_BY_ID[spec.stage_id] for spec in STAGE_SPECS)
     assert all(spec.manifest_filename == "manifest.json" for spec in STAGE_SPECS if spec.executable)
     assert STAGE_BY_NAME["openfoam"].manifest_filename is None
+
+
+def test_registry_defines_automatic_run_selection() -> None:
+    assert {
+        spec.name: spec.selection
+        for spec in STAGE_SPECS
+    } == {
+        "shapefiles": StageSelection.DEFAULT,
+        "visual-enrichment": StageSelection.EXPLICIT,
+        "point-cloud": StageSelection.DEFAULT,
+        "city-models": StageSelection.DEFAULT,
+        "trees": StageSelection.EXPLICIT,
+        "air-purifiers": StageSelection.OPTIONAL,
+        "openfoam": StageSelection.EXPLICIT,
+    }
+    assert OPTIONAL_STAGE_NAMES == ("air-purifiers",)
 
 
 def test_stage_registry_owns_executable_runner_bindings() -> None:

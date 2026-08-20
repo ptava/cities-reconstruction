@@ -25,6 +25,14 @@ class StageMaturity(StrEnum):
     PLANNED = "planned"
 
 
+class StageSelection(StrEnum):
+    """Describe how a stage participates in multi-stage execution."""
+
+    DEFAULT = "default"
+    OPTIONAL = "optional"
+    EXPLICIT = "explicit"
+
+
 @dataclass(frozen=True)
 class StageInputSpec:
     """Describe one stage input without imposing a runtime dependency."""
@@ -41,6 +49,7 @@ class StageSpec:
 
     stage_id: StageId
     maturity: StageMaturity
+    selection: StageSelection
     planner: StagePlanner
     runner: StageRunner | None
     manifest_filename: str | None = None
@@ -90,6 +99,7 @@ STAGE_SPECS = (
     StageSpec(
         stage_id=StageId.SHAPEFILES,
         maturity=StageMaturity.IMPLEMENTED,
+        selection=StageSelection.DEFAULT,
         planner=shapefiles.plan,
         runner=stage_runtime.run_shapefiles,
         manifest_filename="manifest.json",
@@ -100,6 +110,7 @@ STAGE_SPECS = (
     StageSpec(
         stage_id=StageId.VISUAL_ENRICHMENT,
         maturity=StageMaturity.REVIEW_ONLY,
+        selection=StageSelection.EXPLICIT,
         planner=visual_enrichment.plan,
         runner=stage_runtime.run_visual_enrichment,
         manifest_filename="manifest.json",
@@ -113,6 +124,7 @@ STAGE_SPECS = (
     StageSpec(
         stage_id=StageId.POINT_CLOUD,
         maturity=StageMaturity.IMPLEMENTED,
+        selection=StageSelection.DEFAULT,
         planner=point_cloud.plan,
         runner=stage_runtime.run_point_cloud,
         manifest_filename="manifest.json",
@@ -140,6 +152,7 @@ STAGE_SPECS = (
     StageSpec(
         stage_id=StageId.CITY_MODELS,
         maturity=StageMaturity.IMPLEMENTED,
+        selection=StageSelection.DEFAULT,
         planner=city_models.plan,
         runner=stage_runtime.run_city_models,
         manifest_filename="manifest.json",
@@ -152,6 +165,7 @@ STAGE_SPECS = (
     StageSpec(
         stage_id=StageId.TREES,
         maturity=StageMaturity.INCOMPLETE,
+        selection=StageSelection.EXPLICIT,
         planner=trees.plan,
         runner=stage_runtime.run_trees,
         manifest_filename="manifest.json",
@@ -164,6 +178,7 @@ STAGE_SPECS = (
     StageSpec(
         stage_id=StageId.AIR_PURIFIERS,
         maturity=StageMaturity.IMPLEMENTED,
+        selection=StageSelection.OPTIONAL,
         planner=air_purifiers.plan,
         runner=stage_runtime.run_air_purifiers,
         manifest_filename="manifest.json",
@@ -177,6 +192,7 @@ STAGE_SPECS = (
     StageSpec(
         stage_id=StageId.OPENFOAM,
         maturity=StageMaturity.PLANNED,
+        selection=StageSelection.EXPLICIT,
         planner=openfoam.plan,
         runner=None,
         manifest_filename=None,
@@ -190,6 +206,11 @@ STAGE_PLANNERS: dict[str, StagePlanner] = {
 }
 STAGE_NAMES = tuple(spec.name for spec in STAGE_SPECS)
 EXECUTABLE_STAGE_NAMES = tuple(spec.name for spec in STAGE_SPECS if spec.executable)
+OPTIONAL_STAGE_NAMES = tuple(
+    spec.name
+    for spec in STAGE_SPECS
+    if spec.selection is StageSelection.OPTIONAL and spec.executable
+)
 
 
 def dry_run(config: AppConfig, stages: Iterable[str] | None = None) -> list[StageResult]:

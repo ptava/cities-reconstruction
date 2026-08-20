@@ -47,15 +47,16 @@ include = [
   "src/cities_reconstruction/artifacts.py",
   "src/cities_reconstruction/cli.py",
   "src/cities_reconstruction/pipeline.py",
+  "src/cities_reconstruction/pipeline_execution.py",
   "src/cities_reconstruction/stage_layout.py",
   "src/cities_reconstruction/stage_runtime.py",
   "src/cities_reconstruction/stage_contract.py",
   "src/cities_reconstruction/stage_result.py",
   "tests/test_cli.py",
   "tests/test_pipeline.py",
+  "tests/test_pipeline_execution.py",
   "tests/test_stage_layout.py",
   "tests/test_stage_contract.py",
-  "tools/audit_supplemental_planning_migration.py",
 ]
 
 [tool.ruff.lint]
@@ -68,6 +69,7 @@ files = [
   "src/cities_reconstruction/artifacts.py",
   "src/cities_reconstruction/cli.py",
   "src/cities_reconstruction/pipeline.py",
+  "src/cities_reconstruction/pipeline_execution.py",
   "src/cities_reconstruction/stage_layout.py",
   "src/cities_reconstruction/stage_runtime.py",
   "src/cities_reconstruction/stage_contract.py",

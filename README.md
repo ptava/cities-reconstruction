@@ -63,7 +63,7 @@ We could:
 
 This repository will build an application that reconstructs city geometry from online or user-provided data and prepares CFD-ready computational domains for OpenFOAM. The target workflow starts from a small TOML input file, retrieves and prepares geospatial data, reconstructs buildings and terrain through City4CFD, places parametric tree models, and prepares OpenFOAM mesh-generation inputs.
 
-The current implementation provides configuration parsing, a minimal CLI, example Florence configuration, executable feature-retrieval and maintained review-only visual-enrichment stages, supplemental municipal shapefile ingestion, externally authored mixed tree/air-purifier planning GeoJSON, City4CFD point-cloud preparation from DTM/DSM ASCII grids, a configurable City4CFD LoD2.2 reconstruction stage that runs `city4cfd` when available or falls back to Docker when needed, optional terrain sampling for parametric tree and air-purifier placement, executable tree and air-purifier geometry stages, offline graphical QA, and tests. It does not yet run a neural segmentation model or write OpenFOAM cases.
+The current implementation provides configuration parsing, dependency-aware and single-stage CLI execution, example Florence configuration, executable feature-retrieval and maintained review-only visual-enrichment stages, supplemental municipal shapefile ingestion, externally authored mixed tree/air-purifier planning GeoJSON, City4CFD point-cloud preparation from DTM/DSM ASCII grids, a configurable City4CFD LoD2.2 reconstruction stage that runs `city4cfd` when available or falls back to Docker when needed, optional terrain sampling for parametric tree and air-purifier placement, executable tree and air-purifier geometry stages, offline graphical QA, and tests. It does not yet run a neural segmentation model or write OpenFOAM cases.
 
 ## Implementation Strategy
 
@@ -79,11 +79,11 @@ The project is organized as a set of small modules that match the intended compu
 
 External systems such as Overpass, City4CFD, and OpenFOAM are kept behind stage modules. This keeps the CLI and configuration layer testable while domain-specific adapters are added incrementally.
 
-`StageId` provides stable stage identity independently of presentation order. The dependency-neutral stage-layout catalogue stores only each identity and sequence number; its `number_name` property composes directory names such as `03_point_cloud` from those two values. `StageSpec` adds maturity, dependencies, inputs, planners, and execution adapters without duplicating layout metadata. The CLI derives executable stage choices and `run-stage` dispatch from that registry; stage-specific CLI overrides are applied by the focused runtime adapters in `stage_runtime.py`.
+`StageId` provides stable stage identity independently of presentation order. The dependency-neutral stage-layout catalogue stores only each identity and sequence number; its `number_name` property composes directory names such as `03_point_cloud` from those two values. `StageSpec` adds maturity, automatic-selection policy, dependencies, inputs, planners, and execution adapters without duplicating layout metadata. The CLI derives executable choices, dependency-aware `run` plans, and `run-stage` dispatch from that registry; stage-specific CLI overrides are applied by the focused runtime adapters in `stage_runtime.py`.
 
 ### Current Stage Status
 
-The application currently executes one selected stage at a time with `run-stage`; it does not yet provide an automatic end-to-end runner. The stage registry distinguishes a hard dependency from a default artifact producer, so a user-provided input can replace a normal upstream handoff where documented.
+Bare `run` executes the implemented core reconstruction chain `shapefiles -> point-cloud -> city-models`. Air-purifier placement remains an optional branch selected with `--include air-purifiers`; review-only visual enrichment, incomplete trees, and planned OpenFOAM work never enter a default run. `run --target <stage>` resolves only that executable stage and its required dependency closure, while `run-stage` remains available when no upstream stages should be planned automatically. The registry distinguishes a hard dependency from a default artifact producer, so a user-provided input can replace a normal upstream handoff where documented.
 
 | Stage | Status | Required inputs and normal producer | Supported input override | Output directory |
 | --- | --- | --- | --- | --- |
@@ -105,7 +105,7 @@ A missing `manifest.json` means the run is incomplete, interrupted, or invalid, 
 
 Loaded manifests are bound to their publication location: the declared manifest path must resolve to the file being loaded, the output directory must resolve to its parent, and every report, preview, and artifact path must resolve beneath that stage-owned directory. Relocated manifests, `..` escapes, and symlinks escaping the stage directory are rejected.
 
-For `run-stage`, exit code `0` means completed, `1` means a terminal execution failure such as `failed_external_execution`, and `2` means a CLI-usage or configuration error. Point-cloud preparation always requires building footprints, but `shapefiles` is only their default producer: `--building-footprints-geojson` can supply an accepted file directly.
+For `run-stage`, exit code `0` means completed, `1` means a terminal execution failure such as `failed_external_execution`, and `2` means a CLI-usage or configuration error. `run` uses the same codes across its aggregate: it prints the resolved plan before external work, stops after the first non-completed result, and returns `0` only when every planned stage completed. Point-cloud preparation always requires building footprints, but `shapefiles` is only their default producer: `--building-footprints-geojson` can supply an accepted file directly. For example, targeting point-cloud with that override runs point-cloud alone; a default core run still needs shapefiles independently for city-model semantic surfaces.
 
 ## Deferred Development Routes
 
@@ -148,11 +148,11 @@ This route is implemented only as an external adapter. The repository license/EU
 │       ├── adapters/
 │       ├── geometry/
 │       ├── pipeline.py
+│       ├── pipeline_execution.py
 │       ├── stage_layout.py
 │       ├── stage_runtime.py
 │       └── stages/
 ├── tools/
-│   ├── audit_supplemental_planning_migration.py
 │   └── build_air_purifier_tower_models.py
 └── tests/
 ```
@@ -179,18 +179,9 @@ Run the incremental Python quality checks:
 uv run ruff check
 uv run mypy
 uv run pytest -q --cov=cities_reconstruction --cov-report=term-missing
-uv run python tools/audit_supplemental_planning_migration.py
 ```
 
 Ruff and mypy initially cover the pipeline, CLI, runtime-adapter, artifact, stage-result, and City4CFD adapter boundaries plus their focused tests. This scope is intentionally expanded as the larger stage modules are decomposed; coverage measures the complete `cities_reconstruction` package and enforces the configured baseline.
-
-Audit active source, tests, configuration, public documentation, and maintained output snapshots for removed supplemental/planning contracts:
-
-```bash
-uv run python tools/audit_supplemental_planning_migration.py
-```
-
-The audit excludes historical Superpowers design/task records and narrowly allows negative regression assertions that prove removed configuration keys or status metadata remain rejected/absent; every other match fails the command.
 
 ## Usage
 
@@ -213,6 +204,38 @@ Show one stage only:
 ```bash
 uv run cities-reconstruction dry-run --config config/examples/florence.toml --stage shapefiles
 ```
+
+Run the implemented core reconstruction chain in dependency order:
+
+```bash
+uv run cities-reconstruction run --config config/examples/florence.toml
+```
+
+Add the optional air-purifier branch to the core run:
+
+```bash
+uv run cities-reconstruction run --config config/examples/florence.toml --include air-purifiers
+```
+
+Run only point-cloud and its normal required producer:
+
+```bash
+uv run cities-reconstruction run --config config/examples/florence.toml --target point-cloud
+```
+
+Replace that default producer with an explicitly accepted footprint file. In
+this targeted form the resolved plan contains only point-cloud:
+
+```bash
+uv run cities-reconstruction run --config config/examples/florence.toml \
+  --target point-cloud \
+  --building-footprints-geojson path/to/accepted_buildings.geojson
+```
+
+Add `--json` to emit one aggregate object containing the resolved `plan` and
+the `results` actually produced. The same plan is written to standard error
+before execution so standard output remains valid JSON. Human output prints the
+plan first and then each produced stage report.
 
 Run the first stage against Overpass:
 

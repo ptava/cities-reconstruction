@@ -13,7 +13,20 @@ from .config import (
     ConfigError,
     load_config,
 )
-from .pipeline import EXECUTABLE_STAGE_NAMES, STAGE_BY_NAME, STAGE_NAMES, dry_run
+from .pipeline import (
+    EXECUTABLE_STAGE_NAMES,
+    OPTIONAL_STAGE_NAMES,
+    STAGE_BY_NAME,
+    STAGE_NAMES,
+    STAGE_SPECS,
+    dry_run,
+)
+from .pipeline_execution import (
+    ExecutionPlan,
+    PipelineExecution,
+    execute_pipeline,
+    resolve_execution_plan,
+)
 from .stage_contract import StageOutput, StageStatus
 from .stage_result import StageResult
 from .stage_runtime import StageRunOptions
@@ -59,40 +72,75 @@ def build_parser() -> argparse.ArgumentParser:
         choices=EXECUTABLE_STAGE_NAMES,
         help="Stage to execute.",
     )
+    _add_execution_arguments(run_stage)
     run_stage.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit execution summary as JSON.",
+    )
+
+    run = subparsers.add_parser(
+        "run",
+        help="Run the default pipeline or a dependency-aware target.",
+    )
+    _add_config_argument(run)
+    run.add_argument(
+        "--target",
+        choices=EXECUTABLE_STAGE_NAMES,
+        help="Run one executable stage and its required dependency closure.",
+    )
+    run.add_argument(
+        "--include",
+        action="append",
+        choices=OPTIONAL_STAGE_NAMES,
+        default=[],
+        help="Add an optional stage to the default or targeted execution plan.",
+    )
+    _add_execution_arguments(run)
+    run.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the aggregate execution summary as JSON.",
+    )
+
+    return parser
+
+
+def _add_execution_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
         "--overpass-json",
         type=Path,
         help="Use a cached Overpass JSON file instead of making a network request.",
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--streets-shapefile",
         type=Path,
         help="Override the conventional named supplemental input 'streets' for this shapefiles-stage run.",
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--streets-shapefile-crs",
         help="Override the CRS of the conventional named supplemental input 'streets'.",
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--green-areas-shapefile",
         type=Path,
         help="Override the conventional named supplemental input 'green_areas' for this shapefiles-stage run.",
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--green-areas-shapefile-crs",
         help="Override the CRS of the conventional named supplemental input 'green_areas'.",
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--segmentation-geojson",
         type=Path,
         help="Use external segmentation polygons for the visual-enrichment stage.",
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--sat2lod2-geojson",
         type=Path,
         help="Use external SAT2LoD2/LOD2BuildingModel 2D building polygons for the visual-enrichment stage.",
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--tree-canopy-overlay",
         type=Path,
         help=(
@@ -100,7 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
             "When omitted and not configured in TOML, tree-point filtering is skipped."
         ),
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--building-footprints-geojson",
         type=Path,
         help=(
@@ -108,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Relative paths are resolved from the configuration directory."
         ),
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--tree-terrain-geometry",
         type=Path,
         help=(
@@ -116,7 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
             "The OBJ or ASCII STL geometry must use the local City4CFD coordinate frame."
         ),
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--model-library",
         type=Path,
         help=(
@@ -124,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Relative paths are resolved from the configuration directory."
         ),
     )
-    run_stage.add_argument(
+    parser.add_argument(
         "--terrain-geometry",
         type=Path,
         help=(
@@ -132,14 +180,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Relative paths are resolved from the configuration directory."
         ),
     )
-    _add_city_models_arguments(run_stage)
-    run_stage.add_argument(
-        "--json",
-        action="store_true",
-        help="Emit execution summary as JSON.",
-    )
-
-    return parser
+    _add_city_models_arguments(parser)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -174,6 +215,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             _print_dry_run(config, results)
         return 0
+
+    if args.command == "run":
+        try:
+            plan = resolve_execution_plan(
+                target=args.target,
+                includes=args.include,
+                supplied_overrides=_supplied_registry_overrides(args),
+            )
+            validation_error = _validate_plan_scoped_options(args, plan)
+            if validation_error is not None:
+                print(validation_error, file=sys.stderr)
+                return 2
+            _emit_execution_plan(plan, as_json=args.json)
+            execution = execute_pipeline(config, plan, _stage_run_options(args))
+        except ConfigError as exc:
+            print(f"Configuration error: {exc}", file=sys.stderr)
+            return 2
+        _emit_pipeline_execution(execution, as_json=args.json)
+        return 0 if execution.completed else 1
 
     if args.command == "run-stage":
         if args.model_library is not None and args.stage != "air-purifiers":
@@ -260,6 +320,53 @@ def _stage_run_options(args: argparse.Namespace) -> StageRunOptions:
         city_models_log_file=args.city_models_log_file,
         city_models_docker_image=args.city_models_docker_image,
     )
+
+
+def _supplied_registry_overrides(args: argparse.Namespace) -> frozenset[str]:
+    supplied: set[str] = set()
+    for spec in STAGE_SPECS:
+        for input_spec in spec.inputs:
+            override = input_spec.override
+            if override is None or not override.startswith("--"):
+                continue
+            destination = override.removeprefix("--").replace("-", "_")
+            if getattr(args, destination, None) is not None:
+                supplied.add(override)
+    return frozenset(supplied)
+
+
+def _validate_plan_scoped_options(
+    args: argparse.Namespace,
+    plan: ExecutionPlan,
+) -> str | None:
+    stage_names = frozenset(plan.stage_names)
+    if args.model_library is not None and "air-purifiers" not in stage_names:
+        return "--model-library requires air-purifiers in the execution plan"
+    if args.terrain_geometry is not None and "air-purifiers" not in stage_names:
+        return "--terrain-geometry requires air-purifiers in the execution plan"
+    if (
+        args.building_footprints_geojson is not None
+        and "point-cloud" not in stage_names
+    ):
+        return "--building-footprints-geojson requires point-cloud in the execution plan"
+    return None
+
+
+def _emit_execution_plan(plan: ExecutionPlan, *, as_json: bool) -> None:
+    destination = sys.stderr if as_json else sys.stdout
+    print(f"Execution plan: {' -> '.join(plan.stage_names)}", file=destination)
+
+
+def _emit_pipeline_execution(
+    execution: PipelineExecution,
+    *,
+    as_json: bool,
+) -> None:
+    if as_json:
+        print(json.dumps(execution.to_dict(), indent=2))
+        return
+    for result in execution.results:
+        print(result.report_path.read_text(encoding="utf-8").rstrip())
 
 
 def _emit_stage_result(

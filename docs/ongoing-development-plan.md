@@ -23,22 +23,22 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 ## Current checkpoint
 
 - Last updated: 2026-08-20.
-- Baseline captured after: `b88813a refactor: make stage registry own runtime dispatch` on `main` and `origin/main`.
+- Baseline captured after: `370f29d refactor: derive unique pipeline stage directories` on `main` and `origin/main`.
 - The live checkout and Git history remain the source of truth; do not expect this document to contain the hash of the commit that updates the document itself.
-- Current change: stable stage identity and unique derived output numbering are implemented and approved for commit. `.codegraph/` remains intentionally untracked.
-- Verification baseline for the current review slice: Ruff clean; configured mypy clean across 8 source files; full-package mypy clean across 24 source files; supplemental-planning migration audit clean; 401 tests passed; branch coverage 85.42%; `git diff --check` clean.
+- Current change: dependency-aware default, optional, and targeted pipeline execution is implemented and verified for review. `.codegraph/` remains intentionally untracked.
+- Verification baseline for the current review slice: Ruff clean; configured mypy clean across 9 source files; full-package mypy clean across 25 source files; 415 tests passed; branch coverage 85.58%; `git diff --check` clean.
 
 ## Baseline priorities and status
 
 | Priority | Improvement | Status | Current state and remaining work |
 | ---: | --- | --- | --- |
-| 1 | Authoritative pipeline model | Partial | `StageId` and the dependency-neutral layout catalogue own identity/order/path derivation; `StageSpec` owns operational metadata, planners, typed runners, and CLI dispatch. Add a novice-friendly dependency-aware end-to-end `run` command. |
+| 1 | Authoritative pipeline model | Complete in current change | `StageId` and the dependency-neutral layout catalogue own identity/order/path derivation; `StageSpec` owns operational metadata, selection policy, planners, typed runners, and CLI dispatch; the dependency-aware `run` command resolves and executes safe plans. |
 | 2 | Stable stage identity and unique output numbering | Complete | `StageId` is independent of order, and `number_name` derives unique `01` through `07` directories from the stored stage identity and sequence number without hard-coded numbered folder strings. |
 | 3 | Break up god modules | Not started | `shapefiles.py` is 3,974 lines, `point_cloud.py` 2,093, and `city_models.py` 2,060. Preserve public `plan()`/`run()` facades while extracting focused modules. |
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
 | 5 | Transactional output handling | Partial | Manifest-last is universal. Locks and atomic artifact writers are not yet universal in shapefiles, trees, and visual enrichment. |
 | 6 | Declarative uniformly typed CLI | Partial | Registry dispatch and immutable CLI-independent `StageRunOptions` exist. Stage-focused argument registration and one application exception hierarchy remain. |
-| 7 | Python quality gates | Partial/advanced | Ruff, mypy, branch coverage, migration audit, and documented commands exist. CI, optional pre-commit, expanded configured scope, and stronger validated boundary types remain. |
+| 7 | Python quality gates | Partial/advanced | Ruff, mypy, branch coverage, and documented commands exist. CI, optional pre-commit, expanded configured scope, and stronger validated boundary types remain. |
 | 8 | Central geospatial transformations | Not started | EPSG:25832 conversion remains duplicated across five stage modules. Add a shared CRS adapter and evaluate maintained readers separately. |
 | 9 | Tests independent from mutable demonstration assets | Partial | The Mercato AP-007 mismatch is fixed, but behavioral tests still read a mutable documentation asset. Add immutable `tests/data/` fixtures and retain separate canonical-asset tests. |
 | 10 | README operational truth | Complete and continuous | The stage-status table and limitations are current. Keep README, code, tests, and graphical QA instructions aligned after every change. |
@@ -49,7 +49,7 @@ Priority 1 remains the highest-level objective, but its automatic runner require
 
 ### Checkpoint 1: Stable stage identity and layout
 
-Status: complete in the current change.
+Status: complete in `370f29d`.
 
 - Introduce a typed stable stage identifier independent of numeric order.
 - Put static stage layout metadata in a dependency-neutral catalogue.
@@ -60,7 +60,7 @@ Status: complete in the current change.
 
 ### Checkpoint 2: Unique output directories
 
-Status: complete in the same change at the user's direction. Combining the checkpoints ensures no intermediate design retains hard-coded numbered folder names.
+Status: complete in `370f29d` at the user's direction. Combining the checkpoints ensured no intermediate design retained hard-coded numbered folder names.
 
 - Assign unique presentation directories:
 
@@ -82,13 +82,17 @@ Status: complete in the same change at the user's direction. Combining the check
 
 ### Checkpoint 3: Finish the authoritative pipeline model
 
+Status: implemented and verified in the current review slice.
+
 - Add a novice-friendly `run` command driven by registry dependencies.
+- Make bare `run` execute only shapefiles, point-cloud, and city-models; keep air-purifiers optional through `--include air-purifiers`.
+- Support `--target <stage>` for one executable stage and its required dependency closure.
 - Respect explicit inputs that replace default producers.
 - Do not implicitly run review-only, incomplete, or planned stages.
 - Print the resolved execution plan, stop on required-stage failure, aggregate typed results, and return consistent exit codes.
 - Derive operational validation and documentation from registry metadata where practical.
 - Proposed commit: `feat: add dependency-aware pipeline execution`.
-- Mark priority 1 complete after this checkpoint; priority 2 remains complete once the current review slice is committed.
+- Priority 1 is complete in this change; priority 2 remains complete.
 
 ### Checkpoint 4: Decompose large stage modules
 
@@ -113,7 +117,7 @@ Status: complete in the same change at the user's direction. Combining the check
 
 ### Checkpoint 7: Complete quality infrastructure
 
-- Add CI running Ruff, mypy, full pytest branch coverage, and the migration audit.
+- Add CI running Ruff, mypy, and full pytest branch coverage.
 - Expand configured Ruff/mypy scope toward the full package.
 - Add optional pre-commit only after CI commands are stable.
 - Type validated external-data boundaries incrementally.
@@ -143,7 +147,7 @@ For every checkpoint:
 
 1. Implement one focused feature.
 2. Run focused tests during development.
-3. Run Ruff, configured and full-package mypy, full pytest with branch coverage, the migration audit, and `git diff --check`.
+3. Run Ruff, configured and full-package mypy, full pytest with branch coverage, and `git diff --check`.
 4. Present the final diff and explain the commit meaning.
 5. Wait for approval before committing.
 6. Announce that it is time to push after the commit.
@@ -152,4 +156,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-Begin Checkpoint 3: add the novice-friendly dependency-aware `run` command without implicitly executing review-only, incomplete, or planned stages.
+After the current review slice is approved and committed, begin Checkpoint 4 with one behavior-preserving extraction from `shapefiles.py`; keep its public `plan()` and `run()` facade stable and do not combine point-cloud or City4CFD decomposition into the same commit.

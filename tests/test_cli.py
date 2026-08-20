@@ -69,13 +69,14 @@ def _fake_stage_output(
     status: StageStatus = StageStatus.COMPLETED,
     *,
     metrics: dict[str, JsonValue] | None = None,
+    stage: str = "fake-stage",
+    output_directory: Path = Path("stage-output"),
 ) -> FakeStageOutput:
-    output_directory = Path("stage-output")
     return FakeStageOutput(
         StageManifest(
             schema_version=2,
             application_version="test",
-            stage="fake-stage",
+            stage=stage,
             status=status,
             output_directory=output_directory,
             manifest_path=output_directory / "manifest.json",
@@ -174,6 +175,184 @@ def test_run_stage_dispatches_runner_owned_by_registry(
     assert exit_code == 0
     assert received_options == [StageRunOptions()]
     assert json.loads(capsys.readouterr().out) == result.to_dict()
+
+
+def test_pipeline_run_executes_default_chain_and_prints_plan_first(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+    calls: list[str] = []
+
+    for stage_name in ("shapefiles", "point-cloud", "city-models"):
+        output_directory = tmp_path / stage_name
+        output_directory.mkdir()
+        result = _fake_stage_output(stage=stage_name, output_directory=output_directory)
+        result.report_path.write_text(f"report for {stage_name}\n", encoding="utf-8")
+
+        def runner(_config, _options, *, name=stage_name, output=result):
+            calls.append(name)
+            return output
+
+        monkeypatch.setitem(
+            STAGE_BY_NAME,
+            stage_name,
+            replace(STAGE_BY_NAME[stage_name], runner=runner),
+        )
+
+    exit_code = main(["run", "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert calls == ["shapefiles", "point-cloud", "city-models"]
+    assert captured.out.splitlines()[0] == "Execution plan: shapefiles -> point-cloud -> city-models"
+    assert captured.out.count("report for") == 3
+
+
+def test_pipeline_run_json_includes_optional_air_purifiers(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+    calls: list[str] = []
+
+    for stage_name in ("shapefiles", "point-cloud", "city-models", "air-purifiers"):
+        result = _fake_stage_output(stage=stage_name)
+
+        def runner(_config, _options, *, name=stage_name, output=result):
+            calls.append(name)
+            return output
+
+        monkeypatch.setitem(
+            STAGE_BY_NAME,
+            stage_name,
+            replace(STAGE_BY_NAME[stage_name], runner=runner),
+        )
+
+    exit_code = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--include",
+            "air-purifiers",
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert calls == ["shapefiles", "point-cloud", "city-models", "air-purifiers"]
+    assert payload["plan"] == calls
+    assert [result["stage"] for result in payload["results"]] == calls
+    assert captured.err == (
+        "Execution plan: shapefiles -> point-cloud -> city-models -> air-purifiers\n"
+    )
+
+
+def test_pipeline_run_target_respects_explicit_footprint_replacement(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+    footprints_path = tmp_path / "accepted.geojson"
+    calls: list[StageRunOptions] = []
+    result = _fake_stage_output(stage="point-cloud")
+
+    def runner(_config, options):
+        calls.append(options)
+        return result
+
+    monkeypatch.setitem(
+        STAGE_BY_NAME,
+        "point-cloud",
+        replace(STAGE_BY_NAME["point-cloud"], runner=runner),
+    )
+
+    exit_code = main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--target",
+            "point-cloud",
+            "--building-footprints-geojson",
+            str(footprints_path),
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert calls == [StageRunOptions(building_footprints_geojson=footprints_path)]
+    assert json.loads(captured.out)["plan"] == ["point-cloud"]
+
+
+def test_pipeline_run_stops_after_failure_and_returns_one(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+    calls: list[str] = []
+
+    for stage_name, status in (
+        ("shapefiles", StageStatus.COMPLETED),
+        ("point-cloud", StageStatus.FAILED_EXTERNAL_EXECUTION),
+        ("city-models", StageStatus.COMPLETED),
+    ):
+        result = _fake_stage_output(status, stage=stage_name)
+
+        def runner(_config, _options, *, name=stage_name, output=result):
+            calls.append(name)
+            return output
+
+        monkeypatch.setitem(
+            STAGE_BY_NAME,
+            stage_name,
+            replace(STAGE_BY_NAME[stage_name], runner=runner),
+        )
+
+    exit_code = main(["run", "--config", str(config_path), "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert calls == ["shapefiles", "point-cloud"]
+    assert [result["stage"] for result in payload["results"]] == calls
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        (["--target", "shapefiles", "--model-library", "models.json"], "--model-library"),
+        (
+            ["--target", "shapefiles", "--building-footprints-geojson", "buildings.geojson"],
+            "--building-footprints-geojson",
+        ),
+    ],
+)
+def test_pipeline_run_rejects_overrides_for_unselected_stages(
+    tmp_path: Path,
+    capsys,
+    arguments: list[str],
+    message: str,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+
+    exit_code = main(["run", "--config", str(config_path), *arguments])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert message in captured.err
 
 
 def test_run_stage_translates_stage_config_error(
