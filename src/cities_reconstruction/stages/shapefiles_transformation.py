@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 from shapely.geometry import MultiPolygon, Polygon
+from shapely.validation import make_valid
 
 from cities_reconstruction.config import AppConfig
 
@@ -551,6 +552,23 @@ def _coordinates_to_polygon_m(coordinates: list[Any], config: AppConfig) -> Poly
         if len(ring) >= 4
     ]
     return Polygon(shell, holes)
+
+
+def _feature_to_shapely_polygons(
+    feature: dict[str, Any],
+    config: AppConfig,
+) -> list[Polygon]:
+    geometry = feature["geometry"]
+    if geometry["type"] == "Polygon":
+        polygon = _coordinates_to_polygon_m(geometry["coordinates"], config)
+        return _extract_polygons(make_valid(polygon))
+    if geometry["type"] == "MultiPolygon":
+        polygons = []
+        for coordinates in geometry["coordinates"]:
+            polygon = _coordinates_to_polygon_m(coordinates, config)
+            polygons.extend(_extract_polygons(make_valid(polygon)))
+        return polygons
+    return []
 
 
 def _extract_polygons(geometry: Any) -> list[Polygon]:
