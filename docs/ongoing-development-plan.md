@@ -23,10 +23,10 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 ## Current checkpoint
 
 - Last updated: 2026-08-21.
-- Source baseline captured after: `5681e3d refactor: extract shapefiles input adapters`. At verification, `main` and `origin/main` are aligned at `7a0d7be`.
+- Source baseline captured after the `refactor: extract shapefiles transformation` code-and-plan commit; inspect the live history for the commit hash because this document is part of that commit.
 - The live checkout and Git history remain the source of truth; do not expect this document to contain the hash of the commit that updates the document itself.
-- Most recently completed development slice: the fourth behavior-preserving `shapefiles.py` decomposition slice delegates raw Overpass transport/cache handling, ESRI SHP/DBF decoding, and WMS evidence retrieval to `shapefiles_inputs.py` while retaining classification, CRS conversion, domain transformations, artifact writes, and the public `plan()`/`run()` facade. `.codegraph/` remains intentionally untracked.
-- Verification baseline for the completed input-boundary slice: Ruff clean; configured mypy clean across 14 source files; full-package mypy clean across 30 source files; 427 tests passed; branch coverage 85.67%; `git diff --check` clean.
+- Most recently completed development slice: the fifth behavior-preserving `shapefiles.py` decomposition slice delegates tag inventory, ordered tag classification, Overpass element geometry assembly, ROI policy, and payload-to-GeoJSON transformation to `shapefiles_transformation.py`. Supplemental-feature transformation, cross-source overlap resolution, orchestration, artifact writes, and the public `plan()`/`run()` facade remain stable in `shapefiles.py`. `.codegraph/` remains intentionally untracked.
+- Verification baseline for the completed transformation slice: Ruff clean; configured mypy clean across 15 source files; full-package mypy clean across 31 source files; 429 tests passed; branch coverage 85.71%; `git diff --check` clean.
 
 ## Baseline priorities and status
 
@@ -34,7 +34,7 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 | ---: | --- | --- | --- |
 | 1 | Authoritative pipeline model | Complete in `1345dd2` | `StageId` and the dependency-neutral layout catalogue own identity/order/path derivation; `StageSpec` owns operational metadata, selection policy, planners, typed runners, and CLI dispatch; the dependency-aware `run` command resolves and executes safe plans. |
 | 2 | Stable stage identity and unique output numbering | Complete | `StageId` is independent of order, and `number_name` derives unique `01` through `07` directories from the stored stage identity and sequence number without hard-coded numbered folder strings. |
-| 3 | Break up god modules | In progress | `shapefiles.py` is reduced to 2,108 lines after extracting 256 lines of pure diagnostics, 570 lines of raw input adapters/parsers, 167 lines of publication orchestration, 849 lines of HTML/SVG rendering, and 279 lines of Markdown reporting. `point_cloud.py` remains 2,100 lines and `city_models.py` 2,067. Preserve public `plan()`/`run()` facades while continuing focused slices. |
+| 3 | Break up god modules | In progress | `shapefiles.py` is reduced to 1,616 lines after extracting pure diagnostics, raw input adapters/parsers, publication orchestration, HTML/SVG rendering, Markdown reporting, and 529 lines of Overpass transformation/classification. `point_cloud.py` remains 2,100 lines and `city_models.py` 2,067. Preserve public `plan()`/`run()` facades while continuing focused slices. |
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
 | 5 | Transactional output handling | Partial | Manifest-last is universal. Locks and atomic artifact writers are not yet universal in shapefiles, trees, and visual enrichment. |
 | 6 | Declarative uniformly typed CLI | Partial | Registry dispatch and immutable CLI-independent `StageRunOptions` exist. Stage-focused argument registration and one application exception hierarchy remain. |
@@ -96,7 +96,7 @@ Status: complete in `1345dd2`.
 
 ### Checkpoint 4: Decompose large stage modules
 
-Status: presentation extraction committed in `b4be077`; pure diagnostics extraction committed in `2f02431`; publication extraction committed in `3cda1e9`; input-boundary extraction committed in `5681e3d`. Shapefiles decomposition remains in progress; decomposition of `point_cloud.py` and `city_models.py` has not started.
+Status: presentation extraction committed in `b4be077`; pure diagnostics extraction committed in `2f02431`; publication extraction committed in `3cda1e9`; input-boundary extraction committed in `5681e3d`; Overpass transformation extraction committed as `refactor: extract shapefiles transformation`. Shapefiles decomposition remains in progress; decomposition of `point_cloud.py` and `city_models.py` has not started.
 
 - Use several behavior-preserving commits: extract HTML/report rendering first, then diagnostics/publication, input adapters/parsers, and domain transformations/validation.
 - Work through shapefiles, point-cloud, and City4CFD separately; never combine all three into one commit.
@@ -105,6 +105,7 @@ Status: presentation extraction committed in `b4be077`; pure diagnostics extract
 - Completed diagnostics slice: `shapefiles_diagnostics.py` owns pure geometry, supplemental-input, urban-planning, and aggregate-summary diagnostics; `run()` still writes every diagnostic artifact.
 - Completed publication slice: `shapefiles_publication.py` owns the typed publication input, stable artifact ordering and naming, imagery-evidence discovery, metrics/details assembly, and the final manifest publication call. `run()` invokes it only after every artifact write completes. Commit: `3cda1e9 refactor: extract shapefiles publication`.
 - Completed input-boundary slice: `shapefiles_inputs.py` owns Overpass cache/network/retry handling and batch merging, binary ESRI SHP/DBF validation and decoding, and WMS request/response handling plus evidence files. `shapefiles.py` supplies queries and the ROI bounding box, then converts parsed records into domain features. Commit: `5681e3d refactor: extract shapefiles input adapters`.
+- Completed Overpass transformation slice: `shapefiles_transformation.py` owns tag-inventory classification, node lookup, way/relation geometry assembly, ROI assignment, building-roof base-height interpretation, deterministic feature ordering, and skipped-reason accounting. `shapefiles.py` imports the shared metric/ROI helpers used by unchanged supplemental and gap-fill paths, re-exports `overpass_to_features()`, and retains stable `plan()`/`run()` behavior. Commit: `refactor: extract shapefiles transformation`.
 - Remaining Checkpoint 4 scope: complete the focused shapefiles transformation/validation extractions, then inspect and decompose `point_cloud.py` and `city_models.py` separately. Checkpoint 4 is not complete when the shapefiles work alone is finished.
 
 ### Checkpoint 5: Complete transactional publication
@@ -164,4 +165,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-Continue Checkpoint 4 with a behavior-preserving extraction of Overpass payload-to-feature transformation and tag classification into a focused module. Keep `shapefiles.py`'s public `plan()` and `run()` facade stable. Do not mix supplemental-feature transformation, Checkpoint 5 transactional publication, or Checkpoint 8 shared CRS centralization into this slice. After the remaining shapefiles slices, continue Checkpoint 4 with `point_cloud.py`, followed by `city_models.py`.
+Continue Checkpoint 4 with a behavior-preserving extraction of supplemental ESRI record-to-feature transformation and input-specific validation into a focused module. Preserve the current stage-local CRS algorithms without generalizing them, keep cross-source overlap resolution in `shapefiles.py`, and keep the public `plan()`/`run()` facade stable. Do not mix Checkpoint 5 transactional publication or Checkpoint 8 shared CRS centralization into this slice. After the remaining shapefiles slices, continue Checkpoint 4 with `point_cloud.py`, followed by `city_models.py`.

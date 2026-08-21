@@ -87,7 +87,7 @@ The project is organized as a set of small modules that match the intended compu
 
 External systems such as Overpass, City4CFD, and OpenFOAM are kept behind stage modules. This keeps the CLI and configuration layer testable while domain-specific adapters are added incrementally.
 
-The shapefiles stage keeps `plan()` and `run()` as its stable public facade while delegating raw Overpass transport/cache handling, ESRI SHP/DBF decoding, and WMS evidence retrieval to `shapefiles_inputs.py`; pure diagnostic summaries to `shapefiles_diagnostics.py`; generated Markdown reports to `shapefiles_reporting.py`; self-contained HTML/SVG feedback to `shapefiles_rendering.py`; and ordered artifact assembly plus manifest-last publication to `shapefiles_publication.py`. Classification, CRS conversion, domain geometry transformations, orchestration, and artifact file writes remain in the stage facade until their own focused decomposition slices.
+The shapefiles stage keeps `plan()` and `run()` as its stable public facade while delegating raw Overpass transport/cache handling, ESRI SHP/DBF decoding, and WMS evidence retrieval to `shapefiles_inputs.py`; Overpass tag inventory, classification, and payload-to-GeoJSON transformation to `shapefiles_transformation.py`; pure diagnostic summaries to `shapefiles_diagnostics.py`; generated Markdown reports to `shapefiles_reporting.py`; self-contained HTML/SVG feedback to `shapefiles_rendering.py`; and ordered artifact assembly plus manifest-last publication to `shapefiles_publication.py`. Supplemental-feature transformation, CRS conversion, cross-source overlap resolution, orchestration, and artifact file writes remain in the stage facade until their own focused decomposition slices.
 
 `StageId` provides stable stage identity independently of presentation order. The dependency-neutral stage-layout catalogue stores only each identity and sequence number; its `number_name` property composes directory names such as `03_point_cloud` from those two values. `StageSpec` adds maturity, automatic-selection policy, dependencies, inputs, planners, and execution adapters without duplicating layout metadata. The CLI derives executable choices, dependency-aware `run` plans, and `run-stage` dispatch from that registry; stage-specific CLI overrides are applied by the focused runtime adapters in `stage_runtime.py`.
 
@@ -167,7 +167,8 @@ This route is implemented only as an external adapter. The repository license/EU
 │           ├── shapefiles_inputs.py
 │           ├── shapefiles_publication.py
 │           ├── shapefiles_rendering.py
-│           └── shapefiles_reporting.py
+│           ├── shapefiles_reporting.py
+│           └── shapefiles_transformation.py
 ├── tools/
 │   └── build_air_purifier_tower_models.py
 └── tests/
