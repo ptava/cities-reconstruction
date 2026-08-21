@@ -3,18 +3,15 @@ from __future__ import annotations
 import json
 import os
 import struct
-import time
 from dataclasses import replace
-from io import BytesIO
 from pathlib import Path
-from urllib import error
 
 import pytest
 from shapely.geometry import Point
 
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stage_contract import StageOutput
-from cities_reconstruction.stages import shapefiles, shapefiles_publication
+from cities_reconstruction.stages import shapefiles, shapefiles_inputs, shapefiles_publication
 from tests.config_helpers import DEFAULT_SHAPEFILES_BLOCK, write_complete_config
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,67 +82,6 @@ def test_builds_query_with_outer_radius(tmp_path: Path) -> None:
     assert len(query_batches) == 1
     assert all('out body geom;' in batch for batch in query_batches)
     assert sum(batch.count('(around:') for batch in query_batches) == 7
-
-
-def test_overpass_retries_transient_failures_with_configured_backoff(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config_path = tmp_path / "config.toml"
-    write_complete_config(config_path, output_root=tmp_path / "outputs")
-    config = load_config(config_path)
-    responses = iter(
-        [
-            error.HTTPError(
-                config.inputs.overpass_url,
-                504,
-                "Gateway Timeout",
-                hdrs=None,
-                fp=BytesIO(b"temporarily busy"),
-            ),
-            TimeoutError("read operation timed out"),
-            BytesIO(b'{"elements": []}'),
-        ]
-    )
-    sleeps: list[float] = []
-
-    def fake_urlopen(_request, timeout):
-        assert timeout == config.inputs.overpass_timeout_s
-        response = next(responses)
-        if isinstance(response, BaseException):
-            raise response
-        return response
-
-    monkeypatch.setattr(shapefiles.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(time, "sleep", sleeps.append)
-
-    payload, source = shapefiles._load_or_fetch_overpass(config, "out;", None)
-
-    assert payload == {"elements": []}
-    assert source == config.inputs.overpass_url
-    assert sleeps == [2.0, 4.0]
-
-
-def test_overpass_timeout_exhaustion_raises_clear_application_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config_path = tmp_path / "config.toml"
-    write_complete_config(config_path, output_root=tmp_path / "outputs")
-    text = config_path.read_text(encoding="utf-8").replace(
-        "overpass_timeout_s = 60.0",
-        "overpass_timeout_s = 60.0\noverpass_max_attempts = 1",
-    )
-    config_path.write_text(text, encoding="utf-8")
-    config = load_config(config_path)
-    monkeypatch.setattr(
-        shapefiles.request,
-        "urlopen",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("read operation timed out")),
-    )
-
-    with pytest.raises(RuntimeError, match="Overpass request timed out after 60 seconds"):
-        shapefiles._load_or_fetch_overpass(config, "out;", None)
 
 
 def test_uses_ordered_toml_rules_to_classify_overpass_features(tmp_path: Path) -> None:
@@ -819,7 +755,7 @@ def test_live_run_reuses_existing_tag_inventory_cache(
         calls.append(query)
         return payload, "mock geometry response"
 
-    monkeypatch.setattr(shapefiles, "_load_or_fetch_overpass", fake_fetch)
+    monkeypatch.setattr(shapefiles_inputs, "load_or_fetch_overpass", fake_fetch)
 
     result = shapefiles.run(load_config(config_path))
 
@@ -957,7 +893,7 @@ transparent = false''',
             Response(b"<ServiceException>broken</ServiceException>", "text/xml"),
         )
     )
-    monkeypatch.setattr(shapefiles.request, "urlopen", lambda *_args, **_kwargs: next(responses))
+    monkeypatch.setattr(shapefiles_inputs.request, "urlopen", lambda *_args, **_kwargs: next(responses))
 
     result = shapefiles.run(load_config(config_path), overpass_json_path=cached)
 
@@ -1015,7 +951,7 @@ transparent = false''',
             Response(b"<ServiceException>broken</ServiceException>", "text/xml"),
         )
     )
-    monkeypatch.setattr(shapefiles.request, "urlopen", lambda *_args, **_kwargs: next(responses))
+    monkeypatch.setattr(shapefiles_inputs.request, "urlopen", lambda *_args, **_kwargs: next(responses))
 
     first = shapefiles.run(load_config(config_path), overpass_json_path=cached)
     second = shapefiles.run(load_config(config_path), overpass_json_path=cached)
@@ -1028,27 +964,6 @@ transparent = false''',
     assert artifacts["imagery-rerun_imagery-1-error"].path.is_file()
     diagnostics = json.loads(second.imagery_diagnostics_path.read_text(encoding="utf-8"))
     assert diagnostics["sources"][0]["status"] == "error"
-
-
-def test_merge_overpass_batches_deduplicates_elements() -> None:
-    merged = shapefiles._merge_overpass_payloads(
-        [
-            {"version": 0.6, "elements": [{"type": "way", "id": 1, "tags": {"highway": "path"}}]},
-            {
-                "version": 0.6,
-                "elements": [
-                    {"type": "way", "id": 1, "tags": {"highway": "pedestrian"}},
-                    {"type": "node", "id": 2, "tags": {"natural": "tree"}},
-                ],
-            },
-        ]
-    )
-
-    assert merged["version"] == 0.6
-    assert merged["elements"] == [
-        {"type": "way", "id": 1, "tags": {"highway": "pedestrian"}},
-        {"type": "node", "id": 2, "tags": {"natural": "tree"}},
-    ]
 
 
 def test_run_imports_supplemental_tree_shapefile_points(tmp_path: Path) -> None:

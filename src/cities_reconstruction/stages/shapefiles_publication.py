@@ -16,6 +16,7 @@ from cities_reconstruction.stage_contract import (
     publish_stage_manifest,
 )
 from cities_reconstruction.stage_layout import StageId
+from cities_reconstruction.stages.shapefiles_inputs import imagery_source_slug
 
 
 @dataclass(frozen=True)
@@ -128,18 +129,6 @@ def publish_shapefiles_manifest(publication: ShapefilesPublicationInput) -> Stag
             "regions": list[JsonValue](sorted(publication.region_paths)),
         },
     )
-
-
-def imagery_source_slug(value: str) -> str:
-    """Return the stable file and artifact slug for an imagery source."""
-
-    normalized = []
-    for character in value.lower():
-        if character.isalnum():
-            normalized.append(character)
-        elif normalized and normalized[-1] != "_":
-            normalized.append("_")
-    return "".join(normalized).strip("_") or "imagery"
 
 
 def _imagery_evidence_artifacts(
