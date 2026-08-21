@@ -5,9 +5,12 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from shapely.geometry import MultiPolygon, Polygon
+
 from cities_reconstruction.config import AppConfig
 
 EARTH_RADIUS_M = 6_371_000.0
+ROI_FILL_SEGMENTS = 256
 
 FEATURE_LIKE_INVENTORY_KEYS = frozenset(
     {
@@ -527,3 +530,62 @@ def _point_in_ring(point: tuple[float, float], ring: list[tuple[float, float]]) 
 
 def _increment(counts: dict[str, int], key: str) -> None:
     counts[key] = counts.get(key, 0) + 1
+
+
+def _circle_polygon_m(radius: float) -> Polygon:
+    points = [
+        (
+            math.cos(2.0 * math.pi * index / ROI_FILL_SEGMENTS) * radius,
+            math.sin(2.0 * math.pi * index / ROI_FILL_SEGMENTS) * radius,
+        )
+        for index in range(ROI_FILL_SEGMENTS)
+    ]
+    return Polygon(points)
+
+
+def _coordinates_to_polygon_m(coordinates: list[Any], config: AppConfig) -> Polygon:
+    shell = [_project_coordinate_m(point, config) for point in coordinates[0]]
+    holes = [
+        [_project_coordinate_m(point, config) for point in ring]
+        for ring in coordinates[1:]
+        if len(ring) >= 4
+    ]
+    return Polygon(shell, holes)
+
+
+def _extract_polygons(geometry: Any) -> list[Polygon]:
+    if geometry.is_empty:
+        return []
+    if isinstance(geometry, Polygon):
+        return [geometry]
+    if isinstance(geometry, MultiPolygon):
+        return list(geometry.geoms)
+    if hasattr(geometry, "geoms"):
+        return [
+            polygon
+            for item in geometry.geoms
+            for polygon in _extract_polygons(item)
+        ]
+    return []
+
+
+def _polygon_m_to_lonlat_coordinates(
+    polygon: Polygon,
+    config: AppConfig,
+) -> list[list[list[float]]]:
+    rings = [
+        [_local_m_to_lonlat(x, y, config) for x, y in polygon.exterior.coords],
+    ]
+    rings.extend(
+        [_local_m_to_lonlat(x, y, config) for x, y in interior.coords]
+        for interior in polygon.interiors
+    )
+    return rings
+
+
+def _local_m_to_lonlat(x_m: float, y_m: float, config: AppConfig) -> list[float]:
+    lon = config.region.center_lon + math.degrees(
+        x_m / (EARTH_RADIUS_M * math.cos(math.radians(config.region.center_lat)))
+    )
+    lat = config.region.center_lat + math.degrees(y_m / EARTH_RADIUS_M)
+    return [lon, lat]

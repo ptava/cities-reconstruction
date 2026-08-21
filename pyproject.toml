@@ -57,6 +57,7 @@ include = [
   "src/cities_reconstruction/stages/shapefiles_publication.py",
   "src/cities_reconstruction/stages/shapefiles_rendering.py",
   "src/cities_reconstruction/stages/shapefiles_reporting.py",
+  "src/cities_reconstruction/stages/shapefiles_supplemental.py",
   "src/cities_reconstruction/stages/shapefiles_transformation.py",
   "tests/test_cli.py",
   "tests/test_pipeline.py",
@@ -66,6 +67,7 @@ include = [
   "tests/test_shapefiles_publication.py",
   "tests/test_shapefiles_rendering.py",
   "tests/test_shapefiles_reporting.py",
+  "tests/test_shapefiles_supplemental.py",
   "tests/test_shapefiles_transformation.py",
   "tests/test_stage_layout.py",
   "tests/test_stage_contract.py",
@@ -91,6 +93,7 @@ files = [
   "src/cities_reconstruction/stages/shapefiles_publication.py",
   "src/cities_reconstruction/stages/shapefiles_rendering.py",
   "src/cities_reconstruction/stages/shapefiles_reporting.py",
+  "src/cities_reconstruction/stages/shapefiles_supplemental.py",
   "src/cities_reconstruction/stages/shapefiles_transformation.py",
 ]
 check_untyped_defs = true
