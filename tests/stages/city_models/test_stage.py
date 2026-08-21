@@ -14,9 +14,13 @@ from cities_reconstruction.stage_contract import (
     StageStatus,
     publish_stage_manifest,
 )
-from cities_reconstruction.stages import city_models, point_cloud
+from cities_reconstruction.stages.city_models import stage as city_models
 from tests.config_helpers import write_complete_config
 from tests.stage_manifest_helpers import publish_test_stage_manifest
+
+
+# Independently checked EPSG:25832 coordinates for 11.2558E, 43.7696N.
+FLORENCE_CENTER_EPSG25832 = (681557.25, 4848756.39)
 
 
 class FakeExecutor:
@@ -109,8 +113,8 @@ def test_prepares_city4cfd_lod22_handoff_from_point_cloud_manifest(
     roads = json.loads((result.output_directory / "surface_layers" / "roads.geojson").read_text(encoding="utf-8"))
     assert roads["crs"]["properties"]["name"] == "EPSG:25832"
     road_coordinate = roads["features"][0]["geometry"]["coordinates"][0][0]
-    assert abs(road_coordinate[0] - point_cloud._lonlat_to_epsg25832(11.2558, 43.7696)[0]) < 2.0
-    assert abs(road_coordinate[1] - point_cloud._lonlat_to_epsg25832(11.2558, 43.7696)[1]) < 2.0
+    assert abs(road_coordinate[0] - FLORENCE_CENTER_EPSG25832[0]) < 2.0
+    assert abs(road_coordinate[1] - FLORENCE_CENTER_EPSG25832[1]) < 2.0
     assert roads["features"][0]["properties"]["source_crs"] == "EPSG:4326"
     assert roads["features"][0]["properties"]["projected_crs"] == "EPSG:25832"
     assert roads["features"][0]["properties"]["clipped_to_outer_region"] is True
@@ -768,7 +772,7 @@ def _prepare_point_cloud_fixture(tmp_path: Path, alignment_status: str) -> Path:
     point_dir.mkdir(parents=True)
     center_lon = 11.2558
     center_lat = 43.7696
-    center_x, center_y = point_cloud._lonlat_to_epsg25832(center_lon, center_lat)
+    center_x, center_y = FLORENCE_CENTER_EPSG25832
     _write_stage1_surface_fixture(shapefiles_dir, center_lon, center_lat)
     footprint_path = point_dir / "building_footprints_epsg25832.geojson"
     footprint_path.write_text(

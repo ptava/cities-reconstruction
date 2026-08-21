@@ -13,7 +13,7 @@ from tests.config_helpers import write_complete_config
 
 def _policy_module() -> ModuleType:
     try:
-        return import_module("cities_reconstruction.stages.shapefiles_policy")
+        return import_module("cities_reconstruction.stages.shapefiles.policy")
     except ModuleNotFoundError:
         pytest.fail("the focused shapefiles policy module is missing")
 

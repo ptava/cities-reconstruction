@@ -18,7 +18,8 @@ from cities_reconstruction.stage_contract import (
     StageStatus,
     publish_stage_manifest,
 )
-from cities_reconstruction.stages import air_purifiers, shapefiles, trees
+from cities_reconstruction.stages import shapefiles, trees
+from cities_reconstruction.stages.air_purifiers import stage as air_purifiers
 from tests.config_helpers import DEFAULT_SHAPEFILES_BLOCK, ROOT, write_complete_config
 from tests.stage_manifest_helpers import publish_test_stage_manifest
 

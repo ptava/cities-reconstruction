@@ -12,7 +12,7 @@ from tests.config_helpers import write_complete_config
 
 def _supplemental_module() -> ModuleType:
     try:
-        return import_module("cities_reconstruction.stages.shapefiles_supplemental")
+        return import_module("cities_reconstruction.stages.shapefiles.supplemental")
     except ModuleNotFoundError:
         pytest.fail("the focused shapefiles supplemental module is missing")
 

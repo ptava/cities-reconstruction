@@ -12,7 +12,7 @@ from tests.config_helpers import write_complete_config
 
 def _transformation_module() -> ModuleType:
     try:
-        return import_module("cities_reconstruction.stages.shapefiles_transformation")
+        return import_module("cities_reconstruction.stages.shapefiles.transformation")
     except ModuleNotFoundError:
         pytest.fail("the focused shapefiles transformation module is missing")
 

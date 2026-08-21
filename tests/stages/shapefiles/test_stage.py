@@ -11,10 +11,12 @@ from shapely.geometry import Point
 
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stage_contract import StageOutput
-from cities_reconstruction.stages import shapefiles, shapefiles_inputs, shapefiles_publication
+from cities_reconstruction.stages.shapefiles import inputs as shapefiles_inputs
+from cities_reconstruction.stages.shapefiles import publication as shapefiles_publication
+from cities_reconstruction.stages.shapefiles import stage as shapefiles
 from tests.config_helpers import DEFAULT_SHAPEFILES_BLOCK, write_complete_config
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _config_with_supplements(

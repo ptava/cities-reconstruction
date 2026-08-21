@@ -16,7 +16,8 @@ from cities_reconstruction.stage_contract import (
     publish_stage_manifest,
 )
 from cities_reconstruction.stage_layout import StageId
-from cities_reconstruction.stages.shapefiles_inputs import imagery_source_slug
+
+from .inputs import imagery_source_slug
 
 
 @dataclass(frozen=True)

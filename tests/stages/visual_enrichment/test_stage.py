@@ -8,11 +8,11 @@ import pytest
 
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stage_contract import ArtifactKind, StageOutput, StageStatus
-from cities_reconstruction.stages import visual_enrichment
+from cities_reconstruction.stages.visual_enrichment import stage as visual_enrichment
 from tests.config_helpers import write_complete_config
 from tests.stage_manifest_helpers import publish_test_stage_manifest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_visual_enrichment_is_deferred_segmentation_plan() -> None:

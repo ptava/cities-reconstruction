@@ -9,7 +9,8 @@ from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 from cities_reconstruction.config import AppConfig, ConfigError
-from cities_reconstruction.stages.shapefiles_transformation import (
+
+from .transformation import (
     _distance_m,
     _extract_polygons,
     _feature_to_shapely_polygons,

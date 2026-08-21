@@ -9,7 +9,7 @@ from urllib import error
 import pytest
 
 from cities_reconstruction.config import ConfigError, load_config
-from cities_reconstruction.stages import shapefiles_inputs
+from cities_reconstruction.stages.shapefiles import inputs as shapefiles_inputs
 from tests.config_helpers import write_complete_config
 
 

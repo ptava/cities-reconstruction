@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cities_reconstruction.stage_contract import ArtifactKind, StageStatus
-from cities_reconstruction.stages.shapefiles_publication import (
+from cities_reconstruction.stages.shapefiles.publication import (
     ShapefilesPublicationInput,
     imagery_source_slug,
     publish_shapefiles_manifest,

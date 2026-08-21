@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cities_reconstruction.config import load_config
-from cities_reconstruction.stages.shapefiles_diagnostics import (
+from cities_reconstruction.stages.shapefiles.diagnostics import (
     build_geometry_diagnostics,
     build_summary,
     non_contributing_features,

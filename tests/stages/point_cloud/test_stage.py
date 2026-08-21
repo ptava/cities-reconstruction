@@ -9,7 +9,7 @@ import pytest
 
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stage_contract import ArtifactKind
-from cities_reconstruction.stages import point_cloud
+from cities_reconstruction.stages.point_cloud import stage as point_cloud
 from tests.config_helpers import write_complete_config
 from tests.stage_manifest_helpers import publish_test_stage_manifest
 

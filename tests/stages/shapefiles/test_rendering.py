@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cities_reconstruction.config import load_config
-from cities_reconstruction.stages.shapefiles_rendering import (
+from cities_reconstruction.stages.shapefiles.rendering import (
     render_imagery_overlay_html,
     render_preview_html,
 )

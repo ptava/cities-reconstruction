@@ -12,7 +12,8 @@ from cities_reconstruction.artifacts import (
     stage_output_lock,
 )
 from cities_reconstruction.config import ConfigError, load_config
-from cities_reconstruction.stages import city_models, shapefiles
+from cities_reconstruction.stages import shapefiles
+from cities_reconstruction.stages.city_models import stage as city_models
 from tests.config_helpers import write_complete_config
 
 

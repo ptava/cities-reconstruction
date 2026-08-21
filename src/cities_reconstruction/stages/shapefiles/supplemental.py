@@ -13,12 +13,13 @@ from shapely.geometry import Polygon, mapping
 from shapely.validation import make_valid
 
 from cities_reconstruction.config import AppConfig, ConfigError, SupplementalShapefileConfig
-from cities_reconstruction.stages.shapefiles_inputs import (
+
+from .inputs import (
     read_dbf_attributes,
     read_point_records,
     read_polygon_records,
 )
-from cities_reconstruction.stages.shapefiles_transformation import (
+from .transformation import (
     _centroid,
     _circle_polygon_m,
     _coordinates_to_polygon_m,

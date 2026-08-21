@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cities_reconstruction.config import load_config
-from cities_reconstruction.stages.shapefiles_reporting import render_report
+from cities_reconstruction.stages.shapefiles.reporting import render_report
 from tests.config_helpers import write_complete_config
 
 

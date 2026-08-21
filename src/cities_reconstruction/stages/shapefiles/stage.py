@@ -29,8 +29,8 @@ from cities_reconstruction.stage_contract import (
 )
 from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
-from cities_reconstruction.stages import shapefiles_policy
-from cities_reconstruction.stages.shapefiles_diagnostics import (
+from . import policy as shapefiles_policy
+from .diagnostics import (
     build_geometry_diagnostics,
     build_summary,
     non_contributing_features,
@@ -38,27 +38,27 @@ from cities_reconstruction.stages.shapefiles_diagnostics import (
     supplemental_tree_input_diagnostics,
     urban_planning_diagnostics,
 )
-from cities_reconstruction.stages.shapefiles_inputs import (
+from .inputs import (
     fetch_imagery_diagnostics,
     load_or_fetch_geometry_batches,
     load_or_fetch_overpass,
 )
-from cities_reconstruction.stages.shapefiles_publication import (
+from .publication import (
     ShapefilesPublicationInput,
     publish_shapefiles_manifest,
 )
-from cities_reconstruction.stages.shapefiles_rendering import (
+from .rendering import (
     render_imagery_overlay_html,
     render_preview_html,
 )
-from cities_reconstruction.stages.shapefiles_reporting import render_report
-from cities_reconstruction.stages.shapefiles_supplemental import (
+from .reporting import render_report
+from .supplemental import (
     load_supplemental_surface_features as _load_supplemental_surface_features,
 )
-from cities_reconstruction.stages.shapefiles_supplemental import (
+from .supplemental import (
     load_supplemental_tree_features as _load_supplemental_tree_features,
 )
-from cities_reconstruction.stages.shapefiles_transformation import (
+from .transformation import (
     EARTH_RADIUS_M,
     _circle_polygon_m,
     _extract_polygons,
@@ -69,7 +69,7 @@ from cities_reconstruction.stages.shapefiles_transformation import (
     build_tag_inventory,
     overpass_to_features,
 )
-from cities_reconstruction.stages.shapefiles_transformation import (
+from .transformation import (
     _project_coordinate_m as _project_coordinate_m,
 )
 from cities_reconstruction.urban_planning import load_inputs as load_urban_planning_inputs
