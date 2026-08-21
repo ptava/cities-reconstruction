@@ -10,6 +10,7 @@ import pytest
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stage_contract import ArtifactKind
 from cities_reconstruction.stages.point_cloud import stage as point_cloud
+from cities_reconstruction.stages.point_cloud import rendering as point_cloud_rendering
 from tests.config_helpers import write_complete_config
 from tests.stage_manifest_helpers import publish_test_stage_manifest
 
@@ -223,7 +224,7 @@ def test_voxel_grid_subsample_keeps_one_point_per_cell() -> None:
         (4.1, 4.8, 6.0),
     ]
 
-    subsampled = point_cloud._voxel_grid_subsample_many(points, [2.0])[0]
+    subsampled = point_cloud_rendering._voxel_grid_subsample_many(points, [2.0])[0]
 
     assert subsampled == [
         (0.8, 0.7, 2.0),
@@ -237,13 +238,14 @@ def test_preview_scene_includes_unclassified_points_in_bounds(tmp_path: Path) ->
     write_complete_config(config_path, output_root=tmp_path / "outputs")
     config = load_config(config_path)
 
-    scene = point_cloud._point_cloud_scene_data(
+    scene = point_cloud_rendering.point_cloud_scene_data(
         config,
         building_polygons=[],
         ground_points=[(0.0, 0.0, 10.0)],
         building_points=[],
         tree_points=[],
         unclassified_points=[(0.0, 0.0, 30.0)],
+        projected_bbox=(-8.0, -8.0, 8.0, 8.0),
     )
 
     assert scene["maxZ"] == 20.0
@@ -275,7 +277,7 @@ def test_multi_level_voxel_subsample_matches_individual_levels() -> None:
         (4.1, 4.8, 6.0),
     ]
 
-    assert point_cloud._voxel_grid_subsample_many(points, [2.0, 4.0]) == [
+    assert point_cloud_rendering._voxel_grid_subsample_many(points, [2.0, 4.0]) == [
         [
             (0.8, 0.7, 2.0),
             (2.9, 0.1, 4.0),
@@ -699,7 +701,7 @@ def test_failed_point_cloud_qa_does_not_publish_manifest(
     legacy_manifest_path.write_text('{"stale":true}', encoding="utf-8")
     monkeypatch.setattr(
         point_cloud,
-        "_render_preview",
+        "render_preview_html",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("preview failed")),
     )
 

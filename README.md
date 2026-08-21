@@ -91,6 +91,8 @@ Stage packages preserve their established public entry points, including `plan()
 
 `StageId` provides stable stage identity independently of presentation order. The dependency-neutral stage-layout catalogue stores only each identity and sequence number; its `number_name` property composes directory names such as `03_point_cloud` from those two values. `StageSpec` adds maturity, automatic-selection policy, dependencies, inputs, planners, and execution adapters without duplicating layout metadata. The CLI derives executable choices, dependency-aware `run` plans, and `run-stage` dispatch from that registry; stage-specific CLI overrides are applied by the focused runtime adapters in `stage_runtime.py`.
 
+The point-cloud package delegates Markdown generation to `stages/point_cloud/reporting.py` and self-contained HTML plus browser scene-data preparation to `stages/point_cloud/rendering.py`. `stages/point_cloud/stage.py` retains input validation, CRS projection, raster processing, diagnostics, artifact writes, manifest publication, and its public `plan()`/`run()` facade.
+
 ### Current Stage Status
 
 Bare `run` executes the implemented core reconstruction chain `shapefiles -> point-cloud -> city-models`. Air-purifier placement remains an optional branch selected with `--include air-purifiers`; review-only visual enrichment, incomplete trees, and planned OpenFOAM work never enter a default run. `run --target <stage>` resolves only that executable stage and its required dependency closure, while `run-stage` remains available when no upstream stages should be planned automatically. The registry distinguishes a hard dependency from a default artifact producer, so a user-provided input can replace a normal upstream handoff where documented.
@@ -174,7 +176,9 @@ This route is implemented only as an external adapter. The repository license/EU
 │           │   └── stage.py
 │           ├── point_cloud/
 │           │   ├── __init__.py
-│           │   └── stage.py
+│           │   ├── stage.py
+│           │   ├── rendering.py
+│           │   └── reporting.py
 │           ├── shapefiles/
 │           │   ├── __init__.py
 │           │   ├── stage.py
