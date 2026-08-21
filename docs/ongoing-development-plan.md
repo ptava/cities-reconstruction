@@ -118,6 +118,7 @@ Status: presentation extraction committed in `b4be077`; pure diagnostics extract
 ### Checkpoint 6: Finish the declarative CLI
 
 - Add focused per-stage argument registration and validation derived from the registry.
+- Classify every stage input as persistent TOML configuration, a one-run CLI override, or both; when both are supported, preserve explicit CLI-over-TOML precedence and derive help and validation from registry metadata where practical.
 - Remove unrelated options from a single shared parser surface.
 - Introduce one application-level exception hierarchy and uniform human/JSON error behavior.
 - Use separate commits for parser declaration and error unification if review scope becomes large.

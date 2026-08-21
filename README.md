@@ -1,31 +1,39 @@
----
----
+<table>
+  <tr>
+    <td>
+      <img src="docs/imgs/dante_logo.png" width="200" alt="Logo">
+    </td>
+    <td>
+      <h1>Cities reconstruction for urban planning analysis</h1>
+    </td>
+  </tr>
+</table>
 
-# Cities Reconstruction
+<p align="center">
+    <img src="docs/imgs/city_reconstruction_example.png" width="90%" height="90%">
+</p>
+
 
 ## TODOs
-
+- [ ] complete ongoing refactoring plan
 - [ ] Choose and add the project license before public distribution.
-
-City4CFD usage and integration:
 - [ ] Configure City4CFD surface flattening for water surfaces.
-- [ ] Include surface layers and building footprints in the outer domain without reconstructing any explicit feature.
-- [ ] Integrate mesh generation (`blockMesh` + `snappyHexMesh`).
-- [ ] Add a test-case preparation stage that produces a ready-to-run OpenFOAM case with a `snappyHexMesh`-based mesh workflow.
+- [ ] Decide how to handle outer domain: current path wants to include surface layers and building footprints in the outer domain without reconstructing any explicit feature, retaining the outer domain info so that they get implicitly considered in the OpenFOAM simulation via boundary conditions.
 - [ ] Make `point-cloud` stage parallelisable
+- [ ] Define stage for OpenFOAM test case preparation ready for meshing and running (`snappyHexMesh`-based grid and `URANS` modelling)
 
-## FIXEs
-- [ ] Decide the public per-stage help/input contract (shared options versus stage-specific options) before expanding CLI help functions.
-- [ ] Decide which stage inputs require both persistent TOML configuration and one-run CLI overrides; retain the current rule that an explicit stage argument overrides TOML for inputs already exposed both ways.
+## Features
+| stage name | current status |
+| --- | --- |
+| shapefiles | retrieval from OSM with user-defined features and from optional user provided shapefiles |
+| point-cloud | from DTM/DSM to point-cloud conversion with shapefile alignment and projection and classification into buildings and ground points |
+| city-models | 3D modelling via City4CFD from shapefiles and user configuration |
+| trees | 3D modelling of trees from shapefiles, user configuration, and a user-provided tree-model library |
+| air-purifiers | 3D modelling of air purifiers from shapefiles, user configuration, and a user-provided air-purifier-model library |
 
-## Missing Features
-Missing features associated with urban environments workflow represented by the following processing stages:
-1) Shapefiles retrieval (from OSM with user-defined features and from optional user provided shapefiles)
-2) point-cloud processing (from DTM/DSM to point-cloud conversion with shapefile alignment and projection)
-3) 3D modelling via City4CFD (from shapefiles and user configuration)
-4) 3D modelling of trees (from shapefiles, user configuration, and a user-provided tree-model library)
+### Missing features and future work
 
-### Shapefiles retrieval
+#### Shapefiles retrieval
 OSM and municipal open-data portals can contain incomplete or inconsistent feature classifications. Add reviewable segmentation procedures to propose missing features for the retrieved shapefiles.
 
 Features that need to be addressed:
@@ -33,7 +41,7 @@ Features that need to be addressed:
 * green areas
 ... Everything else
 
-### Point-cloud processing
+#### Point-cloud processing
 Starting from DSM and DTM (or point-clouds) we should be able to separate the point-cloud into different classes:
 * buildings
 * ground
@@ -47,7 +55,7 @@ E.g.:
 
 **bridges** --> from point cloud we need to understand the type of bridge and then rely on parametric model to be fitted to the point cloud (find the best scaled shaped that fit the data). Issues: we need to have a library of parametric models for bridges, and we need to understand the type of bridge from the point cloud and its connection with terrain. We need to allow for surface layer characterization on top of bridge structure (e.g. roads, paths, green areas, buildings, etc.)
 
-### Vegetation modelling
+#### Vegetation modelling
 Current status consider a library of standardized tree models grouped by generic standard shapes.
 No per-specie allometric equations are implemented.
 
