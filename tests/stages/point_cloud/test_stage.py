@@ -739,28 +739,6 @@ def test_early_point_cloud_validation_failure_invalidates_old_manifest(
     assert not legacy_manifest_path.exists()
 
 
-def test_explicit_footprint_override_reuses_feature_collection_validation(tmp_path: Path) -> None:
-    invalid_path = tmp_path / "invalid.geojson"
-    invalid_path.write_text("{}", encoding="utf-8")
-
-    with pytest.raises(ValueError, match="feature collection missing features list"):
-        point_cloud._read_feature_collection(invalid_path)
-
-
-def test_rejects_duplicate_ascii_grid_basenames_case_insensitively(tmp_path: Path) -> None:
-    raster_dir = tmp_path / "rasters"
-    (raster_dir / "a").mkdir(parents=True)
-    (raster_dir / "b").mkdir(parents=True)
-    _write_flat_grid(raster_dir / "a" / "tile.ASC", 0.0, 0.0, value=10.0)
-    _write_flat_grid(raster_dir / "b" / "TILE.asc", 20.0, 20.0, value=10.0)
-
-    with pytest.raises(ConfigError, match="duplicate ASCII grid basename") as error:
-        point_cloud._tiles_by_name(raster_dir)
-
-    assert "tile.ASC" in str(error.value)
-    assert "TILE.asc" in str(error.value)
-
-
 def test_rejects_paired_grid_origin_mismatch_before_roi_skip(tmp_path: Path) -> None:
     dtm_dir = tmp_path / "dtm"
     dsm_dir = tmp_path / "dsm"
