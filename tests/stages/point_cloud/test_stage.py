@@ -9,8 +9,9 @@ import pytest
 
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stage_contract import ArtifactKind
-from cities_reconstruction.stages.point_cloud import stage as point_cloud
+from cities_reconstruction.stages.point_cloud import geometry as point_cloud_geometry
 from cities_reconstruction.stages.point_cloud import rendering as point_cloud_rendering
+from cities_reconstruction.stages.point_cloud import stage as point_cloud
 from tests.config_helpers import write_complete_config
 from tests.stage_manifest_helpers import publish_test_stage_manifest
 
@@ -52,7 +53,7 @@ def test_generates_separate_city4cfd_point_clouds_and_alignment_artifacts(tmp_pa
     def fail_if_tree_roof_index_is_built(*_args, **_kwargs):
         raise AssertionError("tree roof index must not be built when tree filtering is disabled")
 
-    monkeypatch.setattr(point_cloud, "_building_roof_point_index", fail_if_tree_roof_index_is_built)
+    monkeypatch.setattr(point_cloud_geometry, "_building_roof_point_index", fail_if_tree_roof_index_is_built)
     result = point_cloud.run(load_config(config_path))
 
     assert result.ground_point_count == 25
@@ -74,9 +75,7 @@ def test_generates_separate_city4cfd_point_clouds_and_alignment_artifacts(tmp_pa
     assert {round(vertex[2], 3) for vertex in building_vertices} == {15.0}
     assert result.unclassified_points_path.exists()
     assert result.ground_point_count == (
-        result.building_point_count
-        + result.tree_point_count
-        + result.unclassified_point_count
+        result.building_point_count + result.tree_point_count + result.unclassified_point_count
     )
     unclassified_vertices = _ply_vertices(result.unclassified_points_path)
     assert len(unclassified_vertices) == result.unclassified_point_count
@@ -183,18 +182,15 @@ def test_generates_separate_city4cfd_point_clouds_and_alignment_artifacts(tmp_pa
     assert "showUnclassifiedCloud: true" in preview
     assert (
         'bindCloudVisibilityToggle("terrainCloudVisibilityToggle", '
-        'views[0], "showTerrainCloud", "terrain cloud")'
-        in preview
+        'views[0], "showTerrainCloud", "terrain cloud")' in preview
     )
     assert (
         'bindCloudVisibilityToggle("buildingsCloudVisibilityToggle", '
-        'views[0], "showBuildingsCloud", "buildings cloud")'
-        in preview
+        'views[0], "showBuildingsCloud", "buildings cloud")' in preview
     )
     assert (
         'bindCloudVisibilityToggle("unclassifiedCloudVisibilityToggle", '
-        'views[0], "showUnclassifiedCloud", "unclassified cloud")'
-        in preview
+        'views[0], "showUnclassifiedCloud", "unclassified cloud")' in preview
     )
     assert "view[stateKey] = !view[stateKey];" in preview
     assert 'button.setAttribute("aria-pressed", String(visible));' in preview
@@ -202,15 +198,9 @@ def test_generates_separate_city4cfd_point_clouds_and_alignment_artifacts(tmp_pa
     assert "views[0].activeBuildingsCloudSampleIndex = index;" in preview
     assert "views[0].activeUnclassifiedCloudSampleIndex = index;" in preview
     assert "view.showTerrainCloud ? terrainSamples.groundPoints.map" in preview
-    assert (
-        "view.showBuildingsCloud ? buildingsCloudSamples.buildingPoints.map"
-        in preview
-    )
+    assert "view.showBuildingsCloud ? buildingsCloudSamples.buildingPoints.map" in preview
     assert "view.showBuildingsCloud ? buildingsCloudSamples.treePoints.map" in preview
-    assert (
-        "view.showUnclassifiedCloud ? unclassifiedCloudSamples.unclassifiedPoints.map"
-        in preview
-    )
+    assert "view.showUnclassifiedCloud ? unclassifiedCloudSamples.unclassifiedPoints.map" in preview
     assert 'view.mode === "buildings"' in preview
 
 
@@ -290,89 +280,11 @@ def test_multi_level_voxel_subsample_matches_individual_levels() -> None:
     ]
 
 
-def test_local_surface_relief_compares_nearby_xy_z_values() -> None:
-    rows = [
-        [10.0, 10.0, 10.0],
-        [10.0, 15.0, 15.0],
-        [10.0, 15.0, 15.0],
-    ]
-
-    assert point_cloud._local_surface_relief(rows, 1, 1, radius_cells=1, nodata_value=-9999.0) == 5.0
-    assert point_cloud._local_surface_relief(rows, 2, 2, radius_cells=1, nodata_value=-9999.0) == 0.0
-    assert point_cloud._local_surface_relief(rows, 2, 2, radius_cells=2, nodata_value=-9999.0) == 5.0
-
-
-def test_estimates_nearby_roof_z_from_building_points() -> None:
-    roof_index: dict[tuple[int, int], list[tuple[float, float, float]]] = {}
-    for point in [(0.0, 0.0, 15.0), (2.0, 0.0, 15.2), (4.0, 0.0, 22.0), (20.0, 20.0, 40.0)]:
-        roof_index.setdefault(point_cloud._roof_index_key(point[0], point[1]), []).append(point)
-
-    assert point_cloud._estimate_nearby_roof_z(1.0, 0.0, 16.0, roof_index) == 15.0
-    assert point_cloud._estimate_nearby_roof_z(1.0, 0.0, 22.0, roof_index) == 22.0
-    assert point_cloud._estimate_nearby_roof_z(4.2, 0.0, 22.3, roof_index) == 22.0
-    assert point_cloud._estimate_nearby_roof_z(4.2, 0.0, 27.0, roof_index) == 22.0
-    assert point_cloud._estimate_nearby_roof_z(100.0, 100.0, 20.0, roof_index) is None
-
-
-def test_roof_cluster_selection_prefers_candidate_height_cluster_over_nearer_lower_roof() -> None:
-    roof_index: dict[tuple[int, int], list[tuple[float, float, float]]] = {}
-    for point in [
-        (0.0, 0.0, 15.0),
-        (1.0, 0.0, 15.1),
-        (3.0, 0.0, 21.8),
-        (4.0, 0.0, 22.0),
-        (5.0, 0.0, 22.1),
-    ]:
-        roof_index.setdefault(point_cloud._roof_index_key(point[0], point[1]), []).append(point)
-
-    assert point_cloud._estimate_nearby_roof_z(1.2, 0.0, 22.0, roof_index) == 22.0
-
-
-def test_building_footprint_buffer_matches_near_edge_points() -> None:
-    polygon = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0), (0.0, 0.0)]
-
-    assert point_cloud._point_within_any_polygon_buffer((4.9, 2.0), [_polygon(polygon)], 1.5) is True
-    assert point_cloud._point_within_any_polygon_buffer((6.0, 2.0), [_polygon(polygon)], 1.5) is False
-
-
-def test_polygon_spatial_index_preserves_exact_geometry_results() -> None:
-    polygons = [
-        _polygon([(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0), (0.0, 0.0)]),
-        _polygon([(40.0, 40.0), (44.0, 40.0), (44.0, 44.0), (40.0, 44.0), (40.0, 40.0)]),
-    ]
-    index = point_cloud.PolygonSpatialIndex.build(polygons, buffer_m=1.5, cell_size=8.0)
-    points = [(-2.0, 2.0), (-1.5, 2.0), (2.0, 2.0), (5.4, 2.0), (6.0, 2.0), (42.0, 42.0)]
-
-    for point in points:
-        assert index.contains(point) is point_cloud._point_in_any_polygon(point, polygons)
-        assert index.within_buffer(point, 1.5) is point_cloud._point_within_any_polygon_buffer(
-            point,
-            polygons,
-            1.5,
-        )
-
-
-def test_polygon_holes_are_excluded_with_explicit_boundary_and_buffer_semantics() -> None:
+def test_alignment_offset_respects_polygon_holes() -> None:
     polygon = _polygon(
         [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)],
         holes=[[(3.0, 3.0), (7.0, 3.0), (7.0, 7.0), (3.0, 7.0), (3.0, 3.0)]],
     )
-    index = point_cloud.PolygonSpatialIndex.build([polygon], buffer_m=1.0, cell_size=4.0)
-    expected_contains = {
-        (2.0, 5.0): True,
-        (5.0, 5.0): False,
-        (0.0, 5.0): True,
-        (3.0, 5.0): True,
-        (-1.0, 5.0): False,
-    }
-
-    for point, expected in expected_contains.items():
-        assert point_cloud._point_in_any_polygon(point, [polygon]) is expected
-        assert index.contains(point) is expected
-
-    assert index.within_buffer((3.5, 5.0), 1.0) is True
-    assert index.within_buffer((5.0, 5.0), 1.0) is False
-    assert index.within_buffer((3.0, 5.0), 1.0) is True
 
     best_offset, score = point_cloud._estimate_horizontal_offset([(5.0, 5.0, 12.0)], [polygon])
     assert best_offset == (-2, 0)
@@ -431,7 +343,7 @@ def test_elevated_courtyard_cell_is_alignment_evidence_not_building_output(tmp_p
         ],
     )
 
-    _ground, buildings, _trees, unclassified, candidates, _summary = point_cloud._points_from_rasters(
+    _ground, buildings, _trees, unclassified, candidates, _summary = point_cloud_geometry.classify_raster_points(
         dtm_directory=dtm_dir,
         dsm_directory=dsm_dir,
         bbox=(center_x - 8.0, center_y - 8.0, center_x + 8.0, center_y + 8.0),
@@ -456,7 +368,7 @@ def test_raster_scan_classifies_every_valid_dsm_point(tmp_path: Path) -> None:
     _write_flat_grid(dtm_dir / "tile.ASC", center_x, center_y, value=10.0)
     _write_single_peak_grid(dsm_dir / "tile.ASC", center_x, center_y)
 
-    ground, buildings, trees, unclassified, candidates, _summary = point_cloud._points_from_rasters(
+    ground, buildings, trees, unclassified, candidates, _summary = point_cloud_geometry.classify_raster_points(
         dtm_directory=dtm_dir,
         dsm_directory=dsm_dir,
         bbox=(center_x - 8.0, center_y - 8.0, center_x + 8.0, center_y + 8.0),
@@ -523,21 +435,29 @@ def test_raster_scan_collects_alignment_candidates_before_footprint_filtering(tm
     config = load_config(config_path)
     bbox = (center_x - 8.0, center_y - 8.0, center_x + 8.0, center_y + 8.0)
 
-    def scan_and_diagnose(shift_m: float) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], dict[str, object]]:
-        footprint = [_polygon([
-            (center_x - shift_m - 0.5, center_y - 0.5),
-            (center_x - shift_m + 0.5, center_y - 0.5),
-            (center_x - shift_m + 0.5, center_y + 0.5),
-            (center_x - shift_m - 0.5, center_y + 0.5),
-            (center_x - shift_m - 0.5, center_y - 0.5),
-        ])]
-        ground, buildings, trees, unclassified, candidates, raster_summary = point_cloud._points_from_rasters(
-            dtm_directory=dtm_dir,
-            dsm_directory=dsm_dir,
-            bbox=bbox,
-            building_polygons=footprint,
-            tree_mask=None,
-            tree_tag_points=[],
+    def scan_and_diagnose(
+        shift_m: float,
+    ) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], dict[str, object]]:
+        footprint = [
+            _polygon(
+                [
+                    (center_x - shift_m - 0.5, center_y - 0.5),
+                    (center_x - shift_m + 0.5, center_y - 0.5),
+                    (center_x - shift_m + 0.5, center_y + 0.5),
+                    (center_x - shift_m - 0.5, center_y + 0.5),
+                    (center_x - shift_m - 0.5, center_y - 0.5),
+                ]
+            )
+        ]
+        ground, buildings, trees, unclassified, candidates, raster_summary = (
+            point_cloud_geometry.classify_raster_points(
+                dtm_directory=dtm_dir,
+                dsm_directory=dsm_dir,
+                bbox=bbox,
+                building_polygons=footprint,
+                tree_mask=None,
+                tree_tag_points=[],
+            )
         )
         diagnostics = point_cloud._build_alignment_diagnostics(
             config=config,
@@ -748,7 +668,7 @@ def test_rejects_paired_grid_origin_mismatch_before_roi_skip(tmp_path: Path) -> 
     _write_flat_grid(dsm_dir / "tile.ASC", 0.0, 0.0, value=15.0)
 
     with pytest.raises(ConfigError, match="DTM/DSM tile grid mismatch") as error:
-        point_cloud._points_from_rasters(
+        point_cloud_geometry.classify_raster_points(
             dtm_directory=dtm_dir,
             dsm_directory=dsm_dir,
             bbox=(-8.0, -8.0, 8.0, 8.0),
@@ -772,7 +692,7 @@ def test_rejects_unmatched_raster_tiles_only_when_they_intersect_roi(tmp_path: P
         return dtm_dir, dsm_dir
 
     def scan(dtm_dir: Path, dsm_dir: Path):
-        return point_cloud._points_from_rasters(
+        return point_cloud_geometry.classify_raster_points(
             dtm_directory=dtm_dir,
             dsm_directory=dsm_dir,
             bbox=(-8.0, -8.0, 8.0, 8.0),
@@ -959,8 +879,8 @@ def test_tree_tag_inside_building_filters_only_when_roof_offset_passes(tmp_path:
 def _polygon(
     exterior: list[tuple[float, float]],
     holes: list[list[tuple[float, float]]] | None = None,
-) -> point_cloud.ProjectedPolygon:
-    return point_cloud.ProjectedPolygon(
+) -> point_cloud_geometry.ProjectedPolygon:
+    return point_cloud_geometry.ProjectedPolygon(
         exterior=tuple(exterior),
         holes=tuple(tuple(hole) for hole in (holes or [])),
     )
