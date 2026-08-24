@@ -45,6 +45,7 @@ from cities_reconstruction.stage_result import StageResult
 
 from . import rendering, reporting
 from .diagnostics import build_footprint_diagnostics
+from .inputs import point_cloud_cell_stats, read_feature_collection, read_json_object
 from .publication import CityModelsPublicationInput, publish_city_models_manifest
 
 DEFAULT_BUILDING_HEIGHT_M = 9.0
@@ -162,7 +163,7 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
         name="alignment-diagnostics",
         kind=ArtifactKind.DIAGNOSTIC,
     ).path
-    diagnostics = _read_json(diagnostics_path)
+    diagnostics = read_json_object(diagnostics_path)
     alignment_status = str(diagnostics.get("alignment_status", "unknown"))
     if alignment_status == "failed":
         raise ConfigError(
@@ -191,9 +192,9 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
         "building_point_cloud": str(building_point_cloud_path),
         "crs": point_manifest.details.get("crs", config.region.crs),
     }
-    footprints = _read_feature_collection(footprint_path)
-    ground_elevation_index = _point_cloud_cell_stats(ground_point_cloud_path, prefer="min")
-    building_roof_index = _point_cloud_cell_stats(building_point_cloud_path, prefer="max")
+    footprints = read_feature_collection(footprint_path)
+    ground_elevation_index = point_cloud_cell_stats(ground_point_cloud_path, prefer="min")
+    building_roof_index = point_cloud_cell_stats(building_point_cloud_path, prefer="max")
     output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     surfaces_dir = output_dir / "surfaces"
     surface_layers_dir = output_dir / "surface_layers"
@@ -498,7 +499,7 @@ def _prepare_stage1_surface_layers(
         name="summary",
         kind=ArtifactKind.SUPPORTING,
     ).path
-    summary = _read_json(summary_path)
+    summary = read_json_object(summary_path)
     feature_counts = summary.get("feature_counts")
     if not isinstance(feature_counts, dict):
         raise ConfigError(f"invalid stage-1 summary: {summary_path}")
@@ -515,7 +516,7 @@ def _prepare_stage1_surface_layers(
             name=f"category-{category.replace('_', '-')}",
             kind=ArtifactKind.HANDOFF,
         ).path
-        source_features = _read_feature_collection(category_path)
+        source_features = read_feature_collection(category_path)
         if not source_features:
             continue
         projected_features = [
@@ -757,26 +758,6 @@ def _relative_to_workdir(path: Path, workdir: Path) -> str:
     return os.path.relpath(path, start=workdir)
 
 
-def _read_feature_collection(path: Path) -> list[dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    features = data.get("features")
-    if not isinstance(features, list):
-        raise ValueError(f"GeoJSON feature collection missing features list: {path}")
-    return [
-        feature for feature in features
-        if isinstance(feature, dict) and feature.get("geometry", {}).get("type") in {"Polygon", "MultiPolygon"}
-    ]
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    if not isinstance(data, dict):
-        raise ValueError(f"expected JSON object in {path}")
-    return data
-
-
 def _feature_polygons(feature: dict[str, Any]) -> list[Polygon]:
     geometry = make_valid(shape(feature["geometry"]))
     if isinstance(geometry, Polygon):
@@ -902,34 +883,6 @@ def _terrain_surface_bbox_projected(config: AppConfig, features: list[dict[str, 
         max(region_max_x, footprint_max_x),
         max(region_max_y, footprint_max_y),
     )
-
-
-def _point_cloud_cell_stats(path: Path, prefer: str) -> dict[tuple[int, int], float]:
-    if prefer not in {"min", "max"}:
-        raise ValueError("prefer must be either 'min' or 'max'")
-    stats: dict[tuple[int, int], float] = {}
-    in_data = False
-    cell_size = 2.0
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            if in_data:
-                parts = line.split()
-                if len(parts) < 3:
-                    continue
-                x = float(parts[0])
-                y = float(parts[1])
-                z = float(parts[2])
-                key = (math.floor(x / cell_size), math.floor(y / cell_size))
-                current = stats.get(key)
-                if current is None:
-                    stats[key] = z
-                elif prefer == "min":
-                    stats[key] = min(current, z)
-                else:
-                    stats[key] = max(current, z)
-            elif line.strip() == "end_header":
-                in_data = True
-    return stats
 
 
 def _feature_preview_elevation(

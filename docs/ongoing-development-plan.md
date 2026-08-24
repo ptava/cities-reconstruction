@@ -23,10 +23,10 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 ## Current checkpoint
 
 - Last updated: 2026-08-24.
-- Source baseline: City4CFD ordered artifact assembly, metrics/details construction, and manifest-last publication extraction is complete in the local `HEAD` commit with subject `refactor: extract City4CFD publication`; inspect the live checkout and Git history for the aligned source, test, quality-gate, and documentation changes.
+- Source baseline: City4CFD input-adapter/parser extraction is complete in the local `HEAD` commit with subject `refactor: extract City4CFD input adapters`; inspect the live checkout and Git history for the aligned source, test, quality-gate, and documentation changes.
 - The live checkout and Git history remain the source of truth; do not expect this document to contain the hash of the commit that updates the document itself.
-- Most recently completed code slice: `stages/city_models/publication.py` owns the typed publication input, stable artifact ordering and conditional handoff flags, surface-layer and execution details, metrics assembly, and the final manifest publication call. `stage.py` invokes `publish_city_models_manifest()` only after configuration, diagnostics, geometry, logs, report, and preview writes complete, while retaining external behavior and public `plan()`/`run()`. Commit: local `HEAD`, `refactor: extract City4CFD publication`.
-- Verification baseline: the behavior-preserving suite passes 468 tests with 86.14% branch coverage on Python 3.11.12; Ruff passes, configured mypy passes for 17 source files, and full-package mypy passes for 50 source files. `.codegraph/` remains intentionally untracked.
+- Most recently completed code slice: `stages/city_models/inputs.py` owns polygon FeatureCollection parsing, JSON-object parsing, and two-metre ASCII PLY elevation-cell aggregation. `stage.py` retains completed-manifest and named-artifact handoff policy, alignment rejection, City4CFD configuration/execution, preview geometry, artifact writes, stable orchestration, and public `plan()`/`run()`. Commit: local `HEAD`, `refactor: extract City4CFD input adapters`.
+- Verification baseline: the behavior-preserving suite passes 473 tests with 86.30% branch coverage on Python 3.11.12; Ruff passes, configured mypy passes for 17 source files, and full-package mypy passes for 51 source files. `.codegraph/` remains intentionally untracked.
 - The recorded cross-source-policy verification baseline remains historical. Like-for-like coverage evidence clears the stage-package review: Python 3.11.12 feature coverage was 85.91% versus the recorded 85.88%; Python 3.13.12 feature coverage was 85.73% versus the `08d2cd4` baseline of 85.71%. The earlier 85.73%-versus-85.88% comparison mixed runtimes and is not a refactor regression.
 
 ## Baseline priorities and status
@@ -35,7 +35,7 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 | ---: | --- | --- | --- |
 | 1 | Authoritative pipeline model | Complete in `1345dd2` | `StageId` and the dependency-neutral layout catalogue own identity/order/path derivation; `StageSpec` owns operational metadata, selection policy, planners, typed runners, and CLI dispatch; the dependency-aware `run` command resolves and executes safe plans. |
 | 2 | Stable stage identity and unique output numbering | Complete | `StageId` is independent of order, and `number_name` derives unique `01` through `07` directories from the stored stage identity and sequence number without hard-coded numbered folder strings. |
-| 3 | Break up god modules | In progress | The shapefiles and point-cloud decompositions are complete. City4CFD presentation, footprint diagnostics, and publication now live in focused sibling modules, reducing `city_models/stage.py` from 2,067 to 1,187 lines. Preserve public `plan()`/`run()` facades while continuing City4CFD inputs next. |
+| 3 | Break up god modules | In progress | The shapefiles and point-cloud decompositions are complete. City4CFD presentation, footprint diagnostics, publication, and input parsing now live in focused sibling modules, reducing `city_models/stage.py` from 2,067 to 1,140 lines. Preserve public `plan()`/`run()` facades while continuing City4CFD domain transformations/validation next. |
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
 | 5 | Transactional output handling | Partial | Manifest-last is universal. Locks and atomic artifact writers are not yet universal in shapefiles, trees, and visual enrichment. |
 | 6 | Declarative uniformly typed CLI | Partial | Registry dispatch and immutable CLI-independent `StageRunOptions` exist. Stage-focused argument registration and one application exception hierarchy remain. |
@@ -97,7 +97,7 @@ Status: complete in `1345dd2`.
 
 ### Checkpoint 4: Decompose large stage modules
 
-Status: the planned focused shapefiles and point-cloud slices are complete. City4CFD presentation, footprint diagnostics, and publication extraction are also complete; City4CFD inputs are next.
+Status: the planned focused shapefiles and point-cloud slices are complete. City4CFD presentation, footprint diagnostics, publication, and input-adapter/parser extractions are also complete; City4CFD domain transformations/validation are next.
 
 - Use several behavior-preserving commits: extract HTML/report rendering first, then diagnostics/publication, input adapters/parsers, and domain transformations/validation.
 - Work through shapefiles, point-cloud, and City4CFD separately; never combine all three into one commit.
@@ -118,6 +118,7 @@ Status: the planned focused shapefiles and point-cloud slices are complete. City
 - Completed City4CFD presentation slice: `stages/city_models/reporting.py` owns Markdown handoff reporting and semantic surface-layer status text. `stages/city_models/rendering.py` owns self-contained HTML, OBJ parsing, bounded mesh sampling, scene recentering, semantic-layer colors, and browser scene-data preparation. `stage.py` retains input/handoff validation, configuration/execution, footprint diagnostics, deterministic QA geometry and artifact writes, manifest publication, stable orchestration, and public `plan()`/`run()` behavior. Commit: `8479829 refactor: extract City4CFD presentation`.
 - Completed City4CFD diagnostics slice: `stages/city_models/diagnostics.py` owns footprint geometry normalization for diagnostics, bounding-box screening, overlap measurement and ordering, inner-ring counting, and the complete diagnostic payload. `stage.py` calls `build_footprint_diagnostics()` after execution, writes the artifact, and retains input/handoff validation, preview geometry, manifest publication, stable orchestration, and public `plan()`/`run()` behavior. Commit: `495a109 refactor: extract City4CFD diagnostics`.
 - Completed City4CFD publication slice: `stages/city_models/publication.py` owns `CityModelsPublicationInput`, stable artifact ordering and conditional handoff flags, surface-layer and execution details, metrics assembly, and the final manifest publication call. `stage.py` invokes `publish_city_models_manifest()` after every artifact write and retains input/handoff validation, execution, preview geometry, stable orchestration, and public `plan()`/`run()` behavior. Commit: local `HEAD`, `refactor: extract City4CFD publication`.
+- Completed City4CFD input-boundary slice: `stages/city_models/inputs.py` owns polygon FeatureCollection and JSON-object parsing plus two-metre ASCII PLY elevation-cell aggregation. `stage.py` retains completed-manifest and named-artifact handoff policy, failed-alignment rejection, configuration/execution, preview geometry, artifact writes, stable orchestration, and public `plan()`/`run()` behavior. Commit: local `HEAD`, `refactor: extract City4CFD input adapters`.
 - Remaining Checkpoint 4 scope: extract input adapters/parsers before domain transformations/validation in later focused slices.
 
 ### Checkpoint 5: Complete transactional publication
@@ -177,4 +178,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-Continue Checkpoint 4 with a behavior-preserving extraction of City4CFD input adapters and parsers into `stages/city_models/inputs.py`. Keep handoff policy, City4CFD configuration/execution, preview-mesh geometry, artifact writes, external behavior, and public `plan()`/`run()` stable. Keep domain transformations/validation, Checkpoint 5 transactional-publication expansion, and Checkpoint 8 shared CRS centralization in later focused slices.
+Continue Checkpoint 4 with a behavior-preserving extraction of City4CFD domain transformations and validation into a focused sibling module. Keep input and handoff policy, City4CFD configuration/execution, preview-mesh artifact writes, external behavior, and public `plan()`/`run()` stable. Keep Checkpoint 5 transactional-publication expansion and Checkpoint 8 shared CRS centralization in later focused slices.
