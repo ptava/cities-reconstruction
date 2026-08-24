@@ -19,6 +19,8 @@ from cities_reconstruction.stage_contract import (
     publish_stage_manifest,
 )
 from cities_reconstruction.stages import shapefiles, trees
+from cities_reconstruction.stages.air_purifiers import publication as air_purifiers_publication
+from cities_reconstruction.stages.air_purifiers import reporting as air_purifiers_reporting
 from cities_reconstruction.stages.air_purifiers import stage as air_purifiers
 from tests.config_helpers import DEFAULT_SHAPEFILES_BLOCK, ROOT, write_complete_config
 from tests.stage_manifest_helpers import publish_test_stage_manifest
@@ -744,7 +746,7 @@ def test_lock_rejection_and_failure_leave_completion_manifest_absent(tmp_path: P
     def fail_report(*args, **kwargs):
         raise ConfigError("forced report failure")
 
-    monkeypatch.setattr(air_purifiers, "_render_report", fail_report)
+    monkeypatch.setattr(air_purifiers_reporting, "render_report", fail_report)
     with pytest.raises(ConfigError, match="forced report failure"):
         air_purifiers.run(config)
     assert not result.manifest_path.exists()
@@ -790,7 +792,7 @@ def test_manifest_is_written_last_and_report_contains_diagnostics(tmp_path: Path
     second["properties"]["urban_planning_input_id"] = "second-source"
     _write_features(config, [first, second])
     published: list[Path] = []
-    original_publish = air_purifiers.publish_stage_manifest
+    original_publish = air_purifiers_publication.publish_stage_manifest
 
     def observe_publication(**kwargs):
         assert kwargs["preview_path"].is_file()
@@ -798,7 +800,7 @@ def test_manifest_is_written_last_and_report_contains_diagnostics(tmp_path: Path
         published.append(kwargs["output_directory"] / "manifest.json")
         return original_publish(**kwargs)
 
-    monkeypatch.setattr(air_purifiers, "publish_stage_manifest", observe_publication)
+    monkeypatch.setattr(air_purifiers_publication, "publish_stage_manifest", observe_publication)
 
     result = air_purifiers.run(config)
 

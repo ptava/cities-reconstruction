@@ -97,6 +97,8 @@ The City4CFD package delegates polygon GeoJSON and diagnostics JSON reading plus
 
 The trees package delegates tree-feature and model-catalogue parsing to `stages/trees/inputs.py`; immutable stage-local records to `stages/trees/models.py`; species/model resolution, allometric parameter selection, coordinate projection, and pure parametric mesh construction to `stages/trees/geometry.py`; provenance summaries to `stages/trees/diagnostics.py`; Markdown and graphical feedback to `stages/trees/reporting.py` and `stages/trees/rendering.py`; and payload assembly plus manifest-last publication to `stages/trees/publication.py`. `stages/trees/stage.py` retains handoff and CRS policy, terrain loading, artifact writes, orchestration, and its public `plan()`/`run()` facade.
 
+The air-purifiers package delegates catalogue and normalized-feature parsing to `stages/air_purifiers/inputs.py`; immutable model and placement records to `stages/air_purifiers/models.py`; placement validation and coordinate resolution to `stages/air_purifiers/geometry.py`; count summaries to `stages/air_purifiers/diagnostics.py`; Markdown and graphical feedback to `stages/air_purifiers/reporting.py` and `stages/air_purifiers/rendering.py`; and stale-instance allowlisting, payload assembly, and manifest-last publication to `stages/air_purifiers/publication.py`. `stages/air_purifiers/stage.py` retains locking, handoff and CRS policy, terrain loading, atomic artifact writes, orchestration, and its public `plan()`/`run()` facade.
+
 ### Current Stage Status
 
 Bare `run` executes the implemented core reconstruction chain `shapefiles -> point-cloud -> city-models`. Air-purifier placement remains an optional branch selected with `--include air-purifiers`; review-only visual enrichment, incomplete trees, and planned OpenFOAM work never enter a default run. `run --target <stage>` resolves only that executable stage and its required dependency closure, while `run-stage` remains available when no upstream stages should be planned automatically. The registry distinguishes a hard dependency from a default artifact producer, so a user-provided input can replace a normal upstream handoff where documented.
@@ -171,6 +173,13 @@ This route is implemented only as an external adapter. The repository license/EU
 │           ├── __init__.py
 │           ├── air_purifiers/
 │           │   ├── __init__.py
+│           │   ├── diagnostics.py
+│           │   ├── geometry.py
+│           │   ├── inputs.py
+│           │   ├── models.py
+│           │   ├── publication.py
+│           │   ├── rendering.py
+│           │   ├── reporting.py
 │           │   └── stage.py
 │           ├── city_models/
 │           │   ├── __init__.py
