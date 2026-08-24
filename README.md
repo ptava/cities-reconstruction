@@ -95,6 +95,8 @@ The point-cloud package delegates building-footprint GeoJSON reading, canopy PNG
 
 The City4CFD package delegates polygon GeoJSON and diagnostics JSON reading plus ASCII PLY elevation-cell aggregation to `stages/city_models/inputs.py`; surface-layer projection/clipping, preview triangle construction, elevation rules, and successful-output validation to `stages/city_models/geometry.py`; Markdown handoff reporting and semantic surface-layer status text to `stages/city_models/reporting.py`; self-contained HTML, OBJ parsing, bounded mesh sampling, scene recentering, semantic-layer colors, and browser scene-data preparation to `stages/city_models/rendering.py`; footprint overlap, inner-ring, and invalid-geometry diagnostics to `stages/city_models/diagnostics.py`; and ordered artifact assembly, metrics/details construction, plus manifest-last publication to `stages/city_models/publication.py`. `stages/city_models/stage.py` retains completed-manifest and named-artifact handoff policy, supported-CRS decisions, City4CFD configuration and execution, every artifact file write, orchestration, and its public `plan()`/`run()` facade.
 
+The trees package delegates tree-feature and model-catalogue parsing to `stages/trees/inputs.py`; immutable stage-local records to `stages/trees/models.py`; species/model resolution, allometric parameter selection, coordinate projection, and pure parametric mesh construction to `stages/trees/geometry.py`; provenance summaries to `stages/trees/diagnostics.py`; Markdown and graphical feedback to `stages/trees/reporting.py` and `stages/trees/rendering.py`; and payload assembly plus manifest-last publication to `stages/trees/publication.py`. `stages/trees/stage.py` retains handoff and CRS policy, terrain loading, artifact writes, orchestration, and its public `plan()`/`run()` facade.
+
 ### Current Stage Status
 
 Bare `run` executes the implemented core reconstruction chain `shapefiles -> point-cloud -> city-models`. Air-purifier placement remains an optional branch selected with `--include air-purifiers`; review-only visual enrichment, incomplete trees, and planned OpenFOAM work never enter a default run. `run --target <stage>` resolves only that executable stage and its required dependency closure, while `run-stage` remains available when no upstream stages should be planned automatically. The registry distinguishes a hard dependency from a default artifact producer, so a user-provided input can replace a normal upstream handoff where documented.
@@ -202,6 +204,13 @@ This route is implemented only as an external adapter. The repository license/EU
 │           │   └── transformation.py
 │           ├── trees/
 │           │   ├── __init__.py
+│           │   ├── diagnostics.py
+│           │   ├── geometry.py
+│           │   ├── inputs.py
+│           │   ├── models.py
+│           │   ├── publication.py
+│           │   ├── rendering.py
+│           │   ├── reporting.py
 │           │   └── stage.py
 │           └── visual_enrichment/
 │               ├── __init__.py

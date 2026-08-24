@@ -18,6 +18,9 @@ from cities_reconstruction.stage_contract import (
     StageStatus,
     publish_stage_manifest,
 )
+from cities_reconstruction.stages.trees import inputs as tree_inputs
+from cities_reconstruction.stages.trees import publication as tree_publication
+from cities_reconstruction.stages.trees import rendering as tree_rendering
 from cities_reconstruction.stages.trees import stage as trees
 from tests.config_helpers import write_complete_config
 from tests.stage_manifest_helpers import publish_test_stage_manifest
@@ -325,7 +328,7 @@ def test_missing_tree_category_mapping_has_no_removed_input_fallback(tmp_path: P
     config = load_config(_write_config(tmp_path))
     config = replace(config, trees=replace(config.trees, category_mapping_path=None))
 
-    assert trees._species_category_mapping(config) == {}
+    assert tree_inputs.species_category_mapping(config) == {}
 
 
 def test_model_property_without_direct_category_keeps_species_mapping_path(tmp_path: Path) -> None:
@@ -410,7 +413,7 @@ def test_tree_preview_view_center_uses_tree_bounds_not_surface_origin() -> None:
         _tree_instance("tree_0002", x=1020.0, y=2040.0),
     ]
 
-    scene = trees._scene_data(instances, surface_origin_x=0.0, surface_origin_y=0.0)
+    scene = tree_rendering.scene_data(instances, surface_origin_x=0.0, surface_origin_y=0.0)
 
     assert scene["surfaceFrame"] == {"originX": 0.0, "originY": 0.0}
     assert scene["viewCenter"] == {"x": 1010.0, "y": 2020.0}
@@ -440,7 +443,7 @@ def test_projects_tree_bases_onto_supplied_terrain_geometry(tmp_path: Path) -> N
 def test_manifest_is_published_after_tree_preview_and_report(tmp_path: Path, monkeypatch) -> None:
     config = load_config(_prepare_tree_fixture(tmp_path))
     published: list[Path] = []
-    original_publish = trees.publish_stage_manifest
+    original_publish = tree_publication.publish_stage_manifest
 
     def observe_publication(**kwargs):
         assert kwargs["preview_path"].is_file()
@@ -448,7 +451,7 @@ def test_manifest_is_published_after_tree_preview_and_report(tmp_path: Path, mon
         published.append(kwargs["output_directory"] / "manifest.json")
         return original_publish(**kwargs)
 
-    monkeypatch.setattr(trees, "publish_stage_manifest", observe_publication)
+    monkeypatch.setattr(tree_publication, "publish_stage_manifest", observe_publication)
 
     result = trees.run(config)
 
