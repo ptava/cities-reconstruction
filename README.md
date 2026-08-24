@@ -91,7 +91,7 @@ Stage packages preserve their established public entry points, including `plan()
 
 `StageId` provides stable stage identity independently of presentation order. The dependency-neutral stage-layout catalogue stores only each identity and sequence number; its `number_name` property composes directory names such as `03_point_cloud` from those two values. `StageSpec` adds maturity, automatic-selection policy, dependencies, inputs, planners, and execution adapters without duplicating layout metadata. The CLI derives executable choices, dependency-aware `run` plans, and `run-stage` dispatch from that registry; stage-specific CLI overrides are applied by the focused runtime adapters in `stage_runtime.py`.
 
-The point-cloud package delegates building-footprint GeoJSON reading, canopy PNG decoding, and paired ESRI ASCII-grid discovery/parsing to `stages/point_cloud/inputs.py`; projected-polygon predicates, spatial indexing, DTM/DSM scanning, and building/tree/unclassified point classification to `stages/point_cloud/geometry.py`; alignment status, shift scoring, and the complete diagnostics payload to `stages/point_cloud/diagnostics.py`; Markdown generation to `stages/point_cloud/reporting.py`; and self-contained HTML plus browser scene-data preparation to `stages/point_cloud/rendering.py`. `stages/point_cloud/stage.py` retains input-policy validation and handoff selection, CRS projection, artifact writes, manifest publication, and its public `plan()`/`run()` facade.
+The point-cloud package delegates building-footprint GeoJSON reading, canopy PNG decoding, and paired ESRI ASCII-grid discovery/parsing to `stages/point_cloud/inputs.py`; projected-polygon predicates, spatial indexing, DTM/DSM scanning, and building/tree/unclassified point classification to `stages/point_cloud/geometry.py`; alignment status, shift scoring, and the complete diagnostics payload to `stages/point_cloud/diagnostics.py`; Markdown generation to `stages/point_cloud/reporting.py`; self-contained HTML plus browser scene-data preparation to `stages/point_cloud/rendering.py`; and ordered artifact assembly plus manifest-last publication to `stages/point_cloud/publication.py`. `stages/point_cloud/stage.py` retains input-policy validation and handoff selection, CRS projection, artifact writes, orchestration, and its public `plan()`/`run()` facade.
 
 ### Current Stage Status
 
@@ -179,6 +179,7 @@ This route is implemented only as an external adapter. The repository license/EU
 │           │   ├── diagnostics.py
 │           │   ├── geometry.py
 │           │   ├── inputs.py
+│           │   ├── publication.py
 │           │   ├── stage.py
 │           │   ├── rendering.py
 │           │   └── reporting.py

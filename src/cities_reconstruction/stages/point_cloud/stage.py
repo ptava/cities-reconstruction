@@ -29,7 +29,6 @@ from cities_reconstruction.stage_contract import (
     StageManifest,
     StageStatus,
     invalidate_stage_manifests,
-    publish_stage_manifest,
     require_completed_manifest,
     require_manifest_artifact,
 )
@@ -51,6 +50,7 @@ from .inputs import (
     read_feature_collection,
     read_png_rgba,
 )
+from .publication import PointCloudPublicationInput, publish_point_cloud_manifest
 from .rendering import render_preview_html
 from .reporting import render_report
 
@@ -263,60 +263,27 @@ def _run_locked(
             diagnostics=diagnostics,
         ),
     )
-    artifacts = [
-        ArtifactReference(
-            "projected-building-footprints",
-            projected_footprints_path,
-            ArtifactKind.HANDOFF,
-        ),
-        ArtifactReference("ground-points", ground_path, ArtifactKind.HANDOFF),
-        ArtifactReference("building-points", building_path, ArtifactKind.HANDOFF),
-    ]
-    if tree_path is not None:
-        artifacts.append(
-            ArtifactReference(
-                "tree-points",
-                tree_path,
-                ArtifactKind.HANDOFF,
-                required=False,
-            )
+    manifest = publish_point_cloud_manifest(
+        PointCloudPublicationInput(
+            output_directory=output_dir,
+            report_path=report_path,
+            preview_path=preview_path,
+            input_state_fingerprint=fingerprint,
+            projected_footprints_path=projected_footprints_path,
+            ground_points_path=ground_path,
+            building_points_path=building_path,
+            tree_points_path=tree_path,
+            unclassified_points_path=unclassified_path,
+            diagnostics_path=diagnostics_path,
+            ground_point_count=len(ground_points),
+            building_point_count=len(building_points),
+            tree_point_count=len(tree_points),
+            unclassified_point_count=len(unclassified_points),
+            alignment_status=str(diagnostics["alignment_status"]),
+            source_building_footprints=footprint_path,
+            crs=config.region.crs,
+            tree_filter=diagnostics["tree_filter"],
         )
-    artifacts.extend(
-        (
-            ArtifactReference(
-                "unclassified-points",
-                unclassified_path,
-                ArtifactKind.DIAGNOSTIC,
-            ),
-            ArtifactReference(
-                "alignment-diagnostics",
-                diagnostics_path,
-                ArtifactKind.DIAGNOSTIC,
-            ),
-            ArtifactReference("report", report_path, ArtifactKind.REPORT),
-            ArtifactReference("preview", preview_path, ArtifactKind.PREVIEW),
-        )
-    )
-    manifest = publish_stage_manifest(
-        stage=STAGE_ID.value,
-        status=StageStatus.COMPLETED,
-        output_directory=output_dir,
-        report_path=report_path,
-        preview_path=preview_path,
-        input_state_fingerprint=fingerprint,
-        artifacts=tuple(artifacts),
-        metrics={
-            "ground_point_count": len(ground_points),
-            "building_point_count": len(building_points),
-            "tree_point_count": len(tree_points),
-            "unclassified_point_count": len(unclassified_points),
-            "alignment_status": str(diagnostics["alignment_status"]),
-        },
-        details={
-            "source_building_footprints": str(footprint_path),
-            "crs": config.region.crs,
-            "tree_filter": diagnostics["tree_filter"],
-        },
     )
 
     return PointCloudStageOutput(
