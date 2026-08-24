@@ -18,7 +18,11 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 
-from cities_reconstruction.artifacts import lightweight_state_fingerprint
+from cities_reconstruction.artifacts import (
+    atomic_write_text,
+    lightweight_state_fingerprint,
+    stage_output_lock,
+)
 from cities_reconstruction.config import AppConfig
 from cities_reconstruction.stage_contract import (
     ArtifactReference,
@@ -207,13 +211,23 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
     """Execute the first pipeline stage and write retrieved feature artifacts."""
 
     output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    invalidate_stage_manifests(output_dir)
+    with stage_output_lock(output_dir, STAGE_ID.value):
+        invalidate_stage_manifests(output_dir)
+        return _run_locked(config, output_dir, overpass_json_path)
+
+
+def _run_locked(
+    config: AppConfig,
+    output_dir: Path,
+    overpass_json_path: Path | None,
+) -> ShapefilesStageOutput:
+    """Execute shapefiles work while the caller owns the stage-output lock."""
+
     overpass_json_path = overpass_json_path.resolve() if overpass_json_path is not None else None
 
     tag_inventory_query = build_tag_inventory_query(config)
     tag_inventory_query_path = output_dir / "tag_inventory_query.txt"
-    tag_inventory_query_path.write_text(tag_inventory_query, encoding="utf-8")
+    atomic_write_text(tag_inventory_query_path, tag_inventory_query)
 
     tag_inventory_raw_path = output_dir / "tag_inventory_raw.json"
     reusing_stage_geometry_cache = (
@@ -231,14 +245,14 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
             overpass_json_path,
             cached_source_label="cached file used for tag inventory",
         )
-    tag_inventory_raw_path.write_text(json.dumps(tag_inventory_raw_data, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(tag_inventory_raw_path, json.dumps(tag_inventory_raw_data, indent=2, sort_keys=True))
     tag_inventory = build_tag_inventory(tag_inventory_raw_data, source=tag_inventory_source, config=config)
     tag_inventory_path = output_dir / "tag_inventory.json"
-    tag_inventory_path.write_text(json.dumps(tag_inventory, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(tag_inventory_path, json.dumps(tag_inventory, indent=2, sort_keys=True))
 
     query = build_overpass_query(config)
     query_path = output_dir / "overpass_query.txt"
-    query_path.write_text(query, encoding="utf-8")
+    atomic_write_text(query_path, query)
 
     raw_data, source = load_or_fetch_geometry_batches(
         config,
@@ -248,7 +262,7 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
         batch_queries=build_overpass_query_batches(config),
     )
     raw_path = output_dir / "overpass_raw.json"
-    raw_path.write_text(json.dumps(raw_data, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(raw_path, json.dumps(raw_data, indent=2, sort_keys=True))
     for temporary_path in (
         *output_dir.glob("overpass_raw_batch_*.json"),
         *output_dir.glob("overpass_query_batch_*.txt"),
@@ -331,7 +345,7 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
         _write_geojson(path, items)
         region_paths[region_name] = path
     diagnostics_path = output_dir / "geometry_diagnostics.json"
-    diagnostics_path.write_text(json.dumps(diagnostics, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(diagnostics_path, json.dumps(diagnostics, indent=2, sort_keys=True))
     diagnostics_geojson_path = output_dir / "non_contributing_features.geojson"
     _write_geojson(diagnostics_geojson_path, non_contributing_features(reference_features))
     imagery_diagnostics = fetch_imagery_diagnostics(
@@ -340,9 +354,10 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
         _roi_bbox_lon_lat(config),
     )
     imagery_diagnostics_path = output_dir / "imagery_diagnostics.json"
-    imagery_diagnostics_path.write_text(json.dumps(imagery_diagnostics, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(imagery_diagnostics_path, json.dumps(imagery_diagnostics, indent=2, sort_keys=True))
     imagery_overlay_path = output_dir / "imagery_overlay.html"
-    imagery_overlay_path.write_text(
+    atomic_write_text(
+        imagery_overlay_path,
         render_imagery_overlay_html(
             config,
             reference_features,
@@ -350,7 +365,6 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
             tree_overlap_filter,
             categories=CATEGORIES,
         ),
-        encoding="utf-8",
     )
 
     raw_element_count = len(raw_data.get("elements", []))
@@ -376,16 +390,17 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
         urban_planning_diagnostics=urban_planning_diagnostics(config, urban_planning),
     )
     summary_path = output_dir / "summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True))
 
     preview_path = output_dir / "preview.html"
-    preview_path.write_text(
+    atomic_write_text(
+        preview_path,
         render_preview_html(config, reference_features, summary, categories=CATEGORIES),
-        encoding="utf-8",
     )
 
     report_path = output_dir / "report.md"
-    report_path.write_text(
+    atomic_write_text(
+        report_path,
         render_report(
             config=config,
             summary=summary,
@@ -407,7 +422,6 @@ def run(config: AppConfig, overpass_json_path: Path | None = None) -> Shapefiles
             summary_path=summary_path,
             preview_path=preview_path,
         ),
-        encoding="utf-8",
     )
 
     feature_source = _feature_source_label(
@@ -675,7 +689,7 @@ def _write_geojson(path: Path, features: list[dict[str, Any]]) -> None:
         "type": "FeatureCollection",
         "features": features,
     }
-    path.write_text(json.dumps(collection, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(path, json.dumps(collection, indent=2, sort_keys=True))
 
 
 def _features_by_region(features: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

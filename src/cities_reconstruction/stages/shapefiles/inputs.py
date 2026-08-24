@@ -12,6 +12,7 @@ from urllib import error, parse, request
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.validation import make_valid
 
+from cities_reconstruction.artifacts import atomic_write_bytes, atomic_write_text
 from cities_reconstruction.config import AppConfig, ConfigError, ImagerySourceConfig
 
 SHAPEFILE_HEADER_BYTES = 100
@@ -42,13 +43,13 @@ def load_or_fetch_geometry_batches(
     for index, batch_query in enumerate(batch_queries, start=1):
         query_path = output_dir / f"overpass_query_batch_{index:02d}.txt"
         cache_path = output_dir / f"overpass_raw_batch_{index:02d}.json"
-        query_path.write_text(batch_query, encoding="utf-8")
+        atomic_write_text(query_path, batch_query)
         if cache_path.exists():
             with cache_path.open("r", encoding="utf-8") as handle:
                 payload = json.load(handle)
         else:
             payload, _source = load_or_fetch_overpass(config, batch_query, None)
-            cache_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            atomic_write_text(cache_path, json.dumps(payload, indent=2, sort_keys=True))
         payloads.append(payload)
     return merge_overpass_payloads(payloads), (
         f"{config.inputs.overpass_url} ({len(payloads)} batched geometry requests)"
@@ -216,7 +217,7 @@ def fetch_imagery_diagnostics(
         url = build_wms_getmap_url(source, bbox)
         slug = imagery_source_slug(source.name)
         request_path = imagery_dir / f"{slug}_request.url"
-        request_path.write_text(url, encoding="utf-8")
+        atomic_write_text(request_path, url)
         image_path = imagery_dir / f"{slug}.{_image_extension(source.format)}"
         source_record.update(
             {
@@ -245,7 +246,7 @@ def fetch_imagery_diagnostics(
         else:
             if _looks_like_wms_error(payload, content_type):
                 error_path = imagery_dir / f"{slug}_error.txt"
-                error_path.write_text(payload.decode("utf-8", errors="replace")[:2000], encoding="utf-8")
+                atomic_write_text(error_path, payload.decode("utf-8", errors="replace")[:2000])
                 source_record.update(
                     {
                         "status": "error",
@@ -255,7 +256,7 @@ def fetch_imagery_diagnostics(
                     }
                 )
             else:
-                image_path.write_bytes(payload)
+                atomic_write_bytes(image_path, payload)
                 source_record.update(
                     {
                         "status": "fetched",

@@ -8,6 +8,7 @@ from urllib import error
 
 import pytest
 
+from cities_reconstruction import artifacts
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stages.shapefiles import inputs as shapefiles_inputs
 from tests.config_helpers import write_complete_config
@@ -110,6 +111,38 @@ def test_load_or_fetch_overpass_reports_timeout_exhaustion(
         shapefiles_inputs.load_or_fetch_overpass(config, "out;", None)
 
 
+def test_interrupted_batch_query_publication_preserves_previous_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_config(write_complete_config(tmp_path / "config.toml"))
+    output_dir = tmp_path / "stage"
+    output_dir.mkdir()
+    query_path = output_dir / "overpass_query_batch_01.txt"
+    query_path.write_text("previous query\n", encoding="utf-8")
+    (output_dir / "overpass_raw_batch_01.json").write_text('{"elements": []}', encoding="utf-8")
+    replace = artifacts.os.replace
+
+    def interrupt_query_publication(source: Path, destination: Path) -> None:
+        if Path(destination) == query_path:
+            raise RuntimeError("interrupted batch query publication")
+        replace(source, destination)
+
+    monkeypatch.setattr(artifacts.os, "replace", interrupt_query_publication)
+
+    with pytest.raises(RuntimeError, match="interrupted batch query publication"):
+        shapefiles_inputs.load_or_fetch_geometry_batches(
+            config,
+            output_dir,
+            None,
+            query="combined query",
+            batch_queries=["replacement query"],
+        )
+
+    assert query_path.read_text(encoding="utf-8") == "previous query\n"
+    assert not list(output_dir.glob(".overpass_query_batch_01.txt.*.tmp"))
+
+
 def test_read_point_records_rejects_a_truncated_shapefile(tmp_path: Path) -> None:
     path = tmp_path / "trees.shp"
     path.write_bytes(b"not-a-shapefile")
@@ -145,3 +178,60 @@ transparent = false""",
         "STYLES=&FORMAT=image%2Fpng&TRANSPARENT=FALSE&SRS=EPSG%3A4326&"
         "BBOX=11.00000000%2C43.00000000%2C12.00000000%2C44.00000000&WIDTH=32&HEIGHT=24"
     )
+
+
+def test_interrupted_imagery_publication_preserves_previous_image(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = write_complete_config(
+        tmp_path / "config.toml",
+        imagery_block="""[[imagery.sources]]
+name = "Atomic imagery"
+type = "wms"
+url = "https://example.test/wms"
+layer = "ortho"
+enabled = true
+crs = "EPSG:4326"
+format = "image/png"
+width = 32
+height = 24
+transparent = false""",
+    )
+    output_dir = tmp_path / "stage"
+    imagery_dir = output_dir / "imagery"
+    imagery_dir.mkdir(parents=True)
+    image_path = imagery_dir / "atomic_imagery.png"
+    image_path.write_bytes(b"previous image")
+
+    class Response:
+        headers = {"Content-Type": "image/png"}
+
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"replacement image"
+
+    monkeypatch.setattr(shapefiles_inputs.request, "urlopen", lambda *_args, **_kwargs: Response())
+    replace = artifacts.os.replace
+
+    def interrupt_image_publication(source: Path, destination: Path) -> None:
+        if Path(destination) == image_path:
+            raise RuntimeError("interrupted image publication")
+        replace(source, destination)
+
+    monkeypatch.setattr(artifacts.os, "replace", interrupt_image_publication)
+
+    with pytest.raises(RuntimeError, match="interrupted image publication"):
+        shapefiles_inputs.fetch_imagery_diagnostics(
+            load_config(config_path),
+            output_dir,
+            (11.0, 43.0, 12.0, 44.0),
+        )
+
+    assert image_path.read_bytes() == b"previous image"
+    assert not list(imagery_dir.glob(".atomic_imagery.png.*.tmp"))

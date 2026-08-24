@@ -23,10 +23,10 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 ## Current checkpoint
 
 - Last updated: 2026-08-24.
-- Source baseline: City4CFD domain-transformation/validation extraction is complete in the local `HEAD` commit with subject `refactor: extract City4CFD geometry`; inspect the live checkout and Git history for the aligned source, test, quality-gate, and documentation changes.
+- Source baseline: shapefiles transactional publication is complete in the local `HEAD` change with subject `refactor: make shapefiles publication transactional`; inspect the live checkout and Git history for the aligned source, test, quality-gate, and documentation changes.
 - The live checkout and Git history remain the source of truth; do not expect this document to contain the hash of the commit that updates the document itself.
-- Most recently completed code slice: `stages/city_models/geometry.py` owns surface-layer projection/clipping, fallback building and terrain triangle construction, point-cloud elevation rules, stage-local coordinate conversion, and successful City4CFD core-geometry validation. `stage.py` retains supported-CRS policy, artifact writes, handoff policy, configuration/execution, stable orchestration, and public `plan()`/`run()`. Commit: local `HEAD`, `refactor: extract City4CFD geometry`.
-- Verification baseline: the behavior-preserving suite passes 480 tests with 86.34% branch coverage on Python 3.11.12; Ruff passes, configured mypy passes for 17 source files, and full-package mypy passes for 52 source files. `.codegraph/` remains intentionally untracked.
+- Most recently completed code slice: `shapefiles.run()` owns an exclusive stage-output lock, invalidates the prior manifest inside it, preserves resumable Overpass cache reuse, atomically replaces stage-owned and input-adapter artifacts, and publishes the manifest last. Public `plan()`/`run()`, artifact names, reports, and graphical previews remain stable. Commit: local `HEAD`, `refactor: make shapefiles publication transactional`.
+- Verification baseline: the suite passes 488 tests with 86.58% branch coverage on Python 3.11.12; Ruff passes, configured mypy passes for 17 source files, and full-package mypy passes for 66 source files. `.codegraph/` remains intentionally untracked.
 - The recorded cross-source-policy verification baseline remains historical. Like-for-like coverage evidence clears the stage-package review: Python 3.11.12 feature coverage was 85.91% versus the recorded 85.88%; Python 3.13.12 feature coverage was 85.73% versus the `08d2cd4` baseline of 85.71%. The earlier 85.73%-versus-85.88% comparison mixed runtimes and is not a refactor regression.
 
 ## Baseline priorities and status
@@ -37,7 +37,7 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 | 2 | Stable stage identity and unique output numbering | Complete | `StageId` is independent of order, and `number_name` derives unique `01` through `07` directories from the stored stage identity and sequence number without hard-coded numbered folder strings. |
 | 3 | Break up god modules | Complete | The shapefiles, point-cloud, and planned City4CFD decompositions are complete. City4CFD presentation, diagnostics, publication, inputs, and domain geometry now live in focused sibling modules, reducing `city_models/stage.py` from 2,067 to 822 lines while preserving public `plan()`/`run()`. |
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
-| 5 | Transactional output handling | Partial | Manifest-last is universal. Locks and atomic artifact writers are not yet universal in shapefiles, trees, and visual enrichment. |
+| 5 | Transactional output handling | Partial | Manifest-last is universal. Shapefiles now locks its output, invalidates the manifest inside the lock, and atomically publishes stage-owned and input-adapter files. Trees and visual enrichment remain. |
 | 6 | Declarative uniformly typed CLI | Partial | Registry dispatch and immutable CLI-independent `StageRunOptions` exist. Stage-focused argument registration and one application exception hierarchy remain. |
 | 7 | Python quality gates | Partial/advanced | Ruff, mypy, branch coverage, and documented commands exist. CI, optional pre-commit, expanded configured scope, and stronger validated boundary types remain. |
 | 8 | Central geospatial transformations | Not started | EPSG:25832 conversion remains duplicated across five stage modules. Add a shared CRS adapter and evaluate maintained readers separately. |
@@ -128,6 +128,7 @@ Status: complete. The planned focused shapefiles, point-cloud, and City4CFD deco
 - Ensure interrupted runs never leave a trusted manifest.
 - Assess directory-level promotion only after universal file-level atomicity.
 - Proposed commit: `refactor: make stage artifact publication transactional`.
+- Completed shapefiles slice: `run()` acquires `01_shapefiles/.stage.lock` before manifest invalidation and all work; stage orchestration and `inputs.py` use same-directory atomic replacement for text, JSON, GeoJSON, Overpass batch caches, WMS request/error evidence, and binary imagery. Interruption tests preserve prior files, remove atomic temporaries, release the lock, and leave no trusted manifest. Overpass cache reuse, public behavior, artifact names, reports, previews, and manifest-last ordering remain unchanged. Commit: local `HEAD`, `refactor: make shapefiles publication transactional`.
 
 ### Checkpoint 6: Finish the declarative CLI
 
@@ -178,4 +179,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-Begin Checkpoint 5 with shapefiles transactional publication: add a stage-output lock, invalidate stale manifests inside the lock before validation/work, and replace direct stage-owned and input-adapter output writes with same-directory atomic publication. Preserve Overpass cache reuse, external behavior, artifact names, manifest-last ordering, graphical feedback, and public `plan()`/`run()`. Keep trees and visual-enrichment transactional publication in later focused slices.
+Continue Checkpoint 5 with trees transactional publication: add a stage-output lock, move stale-manifest invalidation inside it before validation/work, and replace direct tree-stage artifact, report, and preview writes with same-directory atomic publication. Preserve public `plan()`/`run()`, handoff and terrain validation, instance cleanup policy, artifact names, graphical feedback, and manifest-last ordering. Keep visual-enrichment transactional publication as the following focused slice.

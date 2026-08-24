@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from shapely.geometry import Point
 
+from cities_reconstruction import artifacts
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stage_contract import StageOutput
 from cities_reconstruction.stages.shapefiles import inputs as shapefiles_inputs
@@ -399,19 +400,53 @@ def test_shapefiles_failure_invalidates_stale_completion_manifest(
     assert not manifest_path.exists()
 
 
-def test_shapefiles_does_not_claim_universal_stage_output_lock(tmp_path: Path) -> None:
+def test_shapefiles_rejects_concurrent_writer_without_invalidating_manifest(tmp_path: Path) -> None:
     config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
     cached = tmp_path / "overpass.json"
     cached.write_text(json.dumps(_sample_overpass_payload()), encoding="utf-8")
     output_dir = tmp_path / "outputs" / "01_shapefiles"
     output_dir.mkdir(parents=True)
     lock_path = output_dir / ".stage.lock"
-    lock_path.write_text("owned by a future transactional runner\n", encoding="utf-8")
+    lock_path.write_text("owned by another runner\n", encoding="utf-8")
+    manifest_path = output_dir / "manifest.json"
+    manifest_path.write_text('{"completed": true}', encoding="utf-8")
 
-    result = shapefiles.run(load_config(config_path), overpass_json_path=cached)
+    with pytest.raises(ConfigError, match="shapefiles output is locked"):
+        shapefiles.run(load_config(config_path), overpass_json_path=cached)
 
-    assert result.manifest_path.is_file()
-    assert lock_path.read_text(encoding="utf-8") == "owned by a future transactional runner\n"
+    assert manifest_path.read_text(encoding="utf-8") == '{"completed": true}'
+    assert lock_path.read_text(encoding="utf-8") == "owned by another runner\n"
+
+
+def test_interrupted_shapefiles_artifact_publication_preserves_previous_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = write_complete_config(tmp_path / "config.toml", output_root=tmp_path / "outputs")
+    cached = tmp_path / "overpass.json"
+    cached.write_text(json.dumps(_sample_overpass_payload()), encoding="utf-8")
+    output_dir = tmp_path / "outputs" / "01_shapefiles"
+    output_dir.mkdir(parents=True)
+    query_path = output_dir / "tag_inventory_query.txt"
+    query_path.write_text("previous query\n", encoding="utf-8")
+    manifest_path = output_dir / "manifest.json"
+    manifest_path.write_text('{"completed": true}', encoding="utf-8")
+    replace = artifacts.os.replace
+
+    def interrupt_query_publication(source: Path, destination: Path) -> None:
+        if Path(destination) == query_path:
+            raise RuntimeError("interrupted query publication")
+        replace(source, destination)
+
+    monkeypatch.setattr(artifacts.os, "replace", interrupt_query_publication)
+
+    with pytest.raises(RuntimeError, match="interrupted query publication"):
+        shapefiles.run(load_config(config_path), overpass_json_path=cached)
+
+    assert query_path.read_text(encoding="utf-8") == "previous query\n"
+    assert not manifest_path.exists()
+    assert not (output_dir / ".stage.lock").exists()
+    assert not list(output_dir.glob(".tag_inventory_query.txt.*.tmp"))
 
 
 def test_run_routes_urban_planning_points_to_tree_and_purifier_artifacts(tmp_path: Path) -> None:
@@ -1408,7 +1443,7 @@ def test_converts_relation_outer_members_to_building_polygon(tmp_path: Path) -> 
                                     {"lat": 43.76962, "lon": 11.25578},
                                     {"lat": 43.76958, "lon": 11.25578},
                                 ],
-                            }
+                            },
                         ],
                     }
                 ]

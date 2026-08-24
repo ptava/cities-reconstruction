@@ -8,7 +8,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, BinaryIO, TextIO
 from uuid import uuid4
 
 from cities_reconstruction.config import ConfigError
@@ -62,6 +62,27 @@ def atomic_write_text(path: Path, content: str, *, mode: int | None = None) -> N
         handle.write(content)
     if mode is not None:
         path.chmod(mode)
+
+
+@contextmanager
+def atomic_binary_writer(path: Path) -> Iterator[BinaryIO]:
+    """Write and fsync binary data before atomically replacing its destination."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.parent / f".{path.name}.{uuid4().hex}.tmp"
+    try:
+        with temporary_path.open("xb") as handle:
+            yield handle
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    with atomic_binary_writer(path) as handle:
+        handle.write(content)
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
