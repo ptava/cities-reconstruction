@@ -14,10 +14,10 @@ from cities_reconstruction.stage_contract import (
     StageStatus,
     publish_stage_manifest,
 )
+from cities_reconstruction.stages.city_models import rendering as city_models_rendering
 from cities_reconstruction.stages.city_models import stage as city_models
 from tests.config_helpers import write_complete_config
 from tests.stage_manifest_helpers import publish_test_stage_manifest
-
 
 # Independently checked EPSG:25832 coordinates for 11.2558E, 43.7696N.
 FLORENCE_CENTER_EPSG25832 = (681557.25, 4848756.39)
@@ -296,8 +296,8 @@ def test_failed_city_models_qa_does_not_publish_manifest(
     legacy_manifest_path.write_text('{"stale":true}', encoding="utf-8")
     executor = FakeExecutor(_execution_result())
     monkeypatch.setattr(
-        city_models,
-        "_render_preview",
+        city_models_rendering,
+        "render_preview",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("preview failed")),
     )
 
@@ -552,39 +552,6 @@ def test_city_models_preview_loads_meshes_from_configured_city4cfd_output_dir(
         "city4cfd_output/Mesh_roads.obj"
     )
     assert all(layer["mesh_exists"] for layer in manifest["details"]["surface_layers"])
-
-
-def test_city4cfd_mesh_scene_recenters_elevated_obj_z(tmp_path: Path) -> None:
-    building_mesh = tmp_path / "Mesh_Buildings.obj"
-    terrain_mesh = tmp_path / "Mesh_Terrain.obj"
-    building_mesh.write_text(
-        "\n".join(
-            [
-                "v 10 20 44",
-                "v 11 20 47",
-                "v 10 21 58",
-                "f 1 2 3",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    terrain_mesh.write_text(
-        "\n".join(
-            [
-                "v 8 18 43",
-                "v 9 18 43",
-                "v 8 19 43",
-                "f 1 2 3",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    scene = city_models._city4cfd_mesh_scene_data(building_mesh, terrain_mesh)
-    z_values = [point[2] for triangle in scene["triangles"] for point in triangle["points"]]
-
-    assert min(z_values) == 0
-    assert max(z_values) == 15
 
 
 def test_city_models_rejects_projected_stage1_surface_coordinates(

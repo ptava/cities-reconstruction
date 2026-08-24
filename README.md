@@ -93,6 +93,8 @@ Stage packages preserve their established public entry points, including `plan()
 
 The point-cloud package delegates building-footprint GeoJSON reading, canopy PNG decoding, and paired ESRI ASCII-grid discovery/parsing to `stages/point_cloud/inputs.py`; projected-polygon predicates, spatial indexing, DTM/DSM scanning, and building/tree/unclassified point classification to `stages/point_cloud/geometry.py`; alignment status, shift scoring, and the complete diagnostics payload to `stages/point_cloud/diagnostics.py`; Markdown generation to `stages/point_cloud/reporting.py`; self-contained HTML plus browser scene-data preparation to `stages/point_cloud/rendering.py`; and ordered artifact assembly plus manifest-last publication to `stages/point_cloud/publication.py`. `stages/point_cloud/stage.py` retains input-policy validation and handoff selection, CRS projection, artifact writes, orchestration, and its public `plan()`/`run()` facade.
 
+The City4CFD package delegates Markdown handoff reporting and semantic surface-layer status text to `stages/city_models/reporting.py`, and self-contained HTML, OBJ parsing, bounded mesh sampling, scene recentering, semantic-layer colors, and browser scene-data preparation to `stages/city_models/rendering.py`. `stages/city_models/stage.py` retains input and handoff validation, City4CFD configuration and execution, footprint diagnostics, deterministic QA geometry and artifact writes, manifest publication, orchestration, and its public `plan()`/`run()` facade.
+
 ### Current Stage Status
 
 Bare `run` executes the implemented core reconstruction chain `shapefiles -> point-cloud -> city-models`. Air-purifier placement remains an optional branch selected with `--include air-purifiers`; review-only visual enrichment, incomplete trees, and planned OpenFOAM work never enter a default run. `run --target <stage>` resolves only that executable stage and its required dependency closure, while `run-stage` remains available when no upstream stages should be planned automatically. The registry distinguishes a hard dependency from a default artifact producer, so a user-provided input can replace a normal upstream handoff where documented.
@@ -170,6 +172,8 @@ This route is implemented only as an external adapter. The repository license/EU
 │           │   └── stage.py
 │           ├── city_models/
 │           │   ├── __init__.py
+│           │   ├── rendering.py
+│           │   ├── reporting.py
 │           │   └── stage.py
 │           ├── openfoam/
 │           │   ├── __init__.py
