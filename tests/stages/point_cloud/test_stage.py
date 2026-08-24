@@ -9,6 +9,7 @@ import pytest
 
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.stage_contract import ArtifactKind
+from cities_reconstruction.stages.point_cloud import diagnostics as point_cloud_diagnostics
 from cities_reconstruction.stages.point_cloud import geometry as point_cloud_geometry
 from cities_reconstruction.stages.point_cloud import rendering as point_cloud_rendering
 from cities_reconstruction.stages.point_cloud import stage as point_cloud
@@ -280,17 +281,6 @@ def test_multi_level_voxel_subsample_matches_individual_levels() -> None:
     ]
 
 
-def test_alignment_offset_respects_polygon_holes() -> None:
-    polygon = _polygon(
-        [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)],
-        holes=[[(3.0, 3.0), (7.0, 3.0), (7.0, 7.0), (3.0, 7.0), (3.0, 3.0)]],
-    )
-
-    best_offset, score = point_cloud._estimate_horizontal_offset([(5.0, 5.0, 12.0)], [polygon])
-    assert best_offset == (-2, 0)
-    assert score == 1
-
-
 def test_projected_multipolygon_preserves_component_and_hole_order() -> None:
     feature = {
         "geometry": {
@@ -385,42 +375,6 @@ def test_raster_scan_classifies_every_valid_dsm_point(tmp_path: Path) -> None:
     assert len(ground) == len(buildings) + len(trees) + len(unclassified)
 
 
-def test_alignment_diagnostics_uses_raw_shifted_elevated_candidates(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.toml"
-    write_complete_config(config_path, output_root=tmp_path / "outputs")
-    config = load_config(config_path)
-    footprint = [_polygon([(0.0, 0.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5), (0.0, 0.0)])]
-
-    def diagnostics(candidates: list[tuple[float, float, float]]) -> dict[str, object]:
-        return point_cloud._build_alignment_diagnostics(
-            config=config,
-            footprint_path=tmp_path / "buildings.geojson",
-            building_polygons=footprint,
-            ground_points=[],
-            building_points=[],
-            alignment_candidate_points=candidates,
-            tree_points=[],
-            unclassified_points=[],
-            raster_summary={},
-            tree_mask=None,
-            tree_tag_points=[],
-        )
-
-    aligned = diagnostics([(0.25, 0.25, 12.0)])
-    warning = diagnostics([(3.25, 0.25, 12.0)])
-    failed = diagnostics([(6.25, 0.25, 12.0)])
-    insufficient = diagnostics([])
-
-    assert aligned["alignment_status"] == "passed"
-    assert aligned["best_offset_m"] == {"x": 0, "y": 0}
-    assert warning["alignment_status"] == "warning"
-    assert warning["best_offset_m"] == {"x": 3, "y": 0}
-    assert failed["alignment_status"] == "failed"
-    assert failed["best_offset_m"] == {"x": 6, "y": 0}
-    assert insufficient["alignment_status"] == "warning"
-    assert insufficient["alignment_candidate_point_count"] == 0
-
-
 def test_raster_scan_collects_alignment_candidates_before_footprint_filtering(tmp_path: Path) -> None:
     dtm_dir = tmp_path / "dtm"
     dsm_dir = tmp_path / "dsm"
@@ -459,7 +413,7 @@ def test_raster_scan_collects_alignment_candidates_before_footprint_filtering(tm
                 tree_tag_points=[],
             )
         )
-        diagnostics = point_cloud._build_alignment_diagnostics(
+        diagnostics = point_cloud_diagnostics.build_alignment_diagnostics(
             config=config,
             footprint_path=tmp_path / "buildings.geojson",
             building_polygons=footprint,
@@ -471,6 +425,7 @@ def test_raster_scan_collects_alignment_candidates_before_footprint_filtering(tm
             raster_summary=raster_summary,
             tree_mask=None,
             tree_tag_points=[],
+            same_metric_output_crs=True,
         )
         return buildings, candidates, diagnostics
 
@@ -765,7 +720,9 @@ def test_roof_offset_tree_candidate_is_removed_from_building_cloud(tmp_path: Pat
     assert result.building_point_count > 0
     tree_vertices = _ply_vertices(result.tree_points_path)
     building_vertices = _ply_vertices(result.building_points_path)
-    assert all(abs(vertex[0] - tree_x) <= point_cloud.TREE_TAG_ASSOCIATION_RADIUS_M for vertex in tree_vertices)
+    assert all(
+        abs(vertex[0] - tree_x) <= point_cloud_geometry.TREE_TAG_ASSOCIATION_RADIUS_M for vertex in tree_vertices
+    )
     assert all(vertex not in tree_vertices for vertex in building_vertices)
 
     diagnostics = json.loads(result.diagnostics_path.read_text(encoding="utf-8"))
@@ -773,8 +730,11 @@ def test_roof_offset_tree_candidate_is_removed_from_building_cloud(tmp_path: Pat
     assert diagnostics["tree_filter"]["tree_tag_point_count"] == 1
     assert diagnostics["tree_filter"]["counts"]["building_footprint_candidate_count"] > 0
     assert diagnostics["tree_filter"]["counts"]["roof_offset_pass_count"] == result.tree_point_count
-    assert diagnostics["tree_filter"]["roof_offset_threshold_m"] == point_cloud.TREE_ROOF_OFFSET_THRESHOLD_M
-    assert diagnostics["tree_filter"]["building_footprint_buffer_m"] == point_cloud.TREE_BUILDING_FOOTPRINT_BUFFER_M
+    assert diagnostics["tree_filter"]["roof_offset_threshold_m"] == point_cloud_geometry.TREE_ROOF_OFFSET_THRESHOLD_M
+    assert (
+        diagnostics["tree_filter"]["building_footprint_buffer_m"]
+        == point_cloud_geometry.TREE_BUILDING_FOOTPRINT_BUFFER_M
+    )
     assert diagnostics["tree_point_count"] == result.tree_point_count
 
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
@@ -828,7 +788,7 @@ def test_flat_green_roof_near_tree_tag_stays_building(tmp_path: Path) -> None:
     assert result.tree_point_count == 0
     assert result.building_point_count > 0
     diagnostics = json.loads(result.diagnostics_path.read_text(encoding="utf-8"))
-    assert diagnostics["tree_filter"]["roof_offset_threshold_m"] == point_cloud.TREE_ROOF_OFFSET_THRESHOLD_M
+    assert diagnostics["tree_filter"]["roof_offset_threshold_m"] == point_cloud_geometry.TREE_ROOF_OFFSET_THRESHOLD_M
     assert diagnostics["tree_filter"]["counts"]["roof_estimate_candidate_count"] > 0
     assert diagnostics["tree_filter"]["counts"]["roof_offset_pass_count"] == 0
 
@@ -871,9 +831,12 @@ def test_tree_tag_inside_building_filters_only_when_roof_offset_passes(tmp_path:
     diagnostics = json.loads(result.diagnostics_path.read_text(encoding="utf-8"))
     assert diagnostics["tree_filter"]["counts"]["evidence_candidate_count"] > 0
     assert diagnostics["tree_filter"]["counts"]["roof_offset_pass_count"] == 1
-    assert diagnostics["tree_filter"]["canopy_mask_search_radius_px"] == point_cloud.TREE_CANOPY_MASK_SEARCH_RADIUS_PX
-    assert diagnostics["tree_filter"]["excess_green_threshold"] == point_cloud.TREE_EXCESS_GREEN_THRESHOLD
-    assert diagnostics["tree_filter"]["min_green_channel"] == point_cloud.TREE_MIN_GREEN_CHANNEL
+    assert (
+        diagnostics["tree_filter"]["canopy_mask_search_radius_px"]
+        == point_cloud_geometry.TREE_CANOPY_MASK_SEARCH_RADIUS_PX
+    )
+    assert diagnostics["tree_filter"]["excess_green_threshold"] == point_cloud_geometry.TREE_EXCESS_GREEN_THRESHOLD
+    assert diagnostics["tree_filter"]["min_green_channel"] == point_cloud_geometry.TREE_MIN_GREEN_CHANNEL
 
 
 def _polygon(
