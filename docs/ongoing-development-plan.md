@@ -37,7 +37,7 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 | 2 | Stable stage identity and unique output numbering | Complete | `StageId` is independent of order, and `number_name` derives unique `01` through `07` directories from the stored stage identity and sequence number without hard-coded numbered folder strings. |
 | 3 | Break up god modules | Complete | The shapefiles, point-cloud, and planned City4CFD decompositions are complete. City4CFD presentation, diagnostics, publication, inputs, and domain geometry now live in focused sibling modules, reducing `city_models/stage.py` from 2,067 to 822 lines while preserving public `plan()`/`run()`. |
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
-| 5 | Transactional output handling | Partial | Manifest-last is universal. Shapefiles and trees now lock their outputs, invalidate manifests inside the lock, and atomically publish stage-owned files. Visual enrichment remains. |
+| 5 | Transactional output handling | Complete for active stages; deferred route excluded | Manifest-last is universal. Active stages use the required file-level transaction contract. Shapefiles and trees completed the remaining active work; visual enrichment hardening is deferred with that dormant review-only stage until its backend, review, and promotion workflow are developed. |
 | 6 | Declarative uniformly typed CLI | Partial | Registry dispatch and immutable CLI-independent `StageRunOptions` exist. Stage-focused argument registration and one application exception hierarchy remain. |
 | 7 | Python quality gates | Partial/advanced | Ruff, mypy, branch coverage, and documented commands exist. CI, optional pre-commit, expanded configured scope, and stronger validated boundary types remain. |
 | 8 | Central geospatial transformations | Not started | EPSG:25832 conversion remains duplicated across five stage modules. Add a shared CRS adapter and evaluate maintained readers separately. |
@@ -123,13 +123,16 @@ Status: complete. The planned focused shapefiles, point-cloud, and City4CFD deco
 
 ### Checkpoint 5: Complete transactional publication
 
-- Apply `lock -> invalidate stale manifest -> validate -> atomic artifacts -> report/preview -> manifest last` to every executable stage.
-- Add locking and atomic writes to shapefiles, trees, and visual enrichment.
+Status: complete for active stages. Transactional hardening and directory-level promotion for dormant visual enrichment are deferred until that review-only route is developed.
+
+- Apply `lock -> invalidate stale manifest -> validate -> atomic artifacts -> report/preview -> manifest last` to every active stage; require the same sequence when a dormant review-only route is promoted.
+- Add locking and atomic writes to active production stages; do not let a dormant experimental route block the active roadmap.
 - Ensure interrupted runs never leave a trusted manifest.
-- Assess directory-level promotion only after universal file-level atomicity.
+- Assess directory-level promotion only after file-level atomicity is complete for every stage in the scope being promoted.
 - Proposed commit: `refactor: make stage artifact publication transactional`.
 - Completed shapefiles slice: `run()` acquires `01_shapefiles/.stage.lock` before manifest invalidation and all work; stage orchestration and `inputs.py` use same-directory atomic replacement for text, JSON, GeoJSON, Overpass batch caches, WMS request/error evidence, and binary imagery. Interruption tests preserve prior files, remove atomic temporaries, release the lock, and leave no trusted manifest. Overpass cache reuse, public behavior, artifact names, reports, previews, and manifest-last ordering remain unchanged. Commit: local `HEAD`, `refactor: make shapefiles publication transactional`.
 - Completed trees slice: `run()` acquires `05_trees/.stage.lock` before invalidating current and legacy manifests or validating inputs; all aggregate/per-species STL, placement, library, report, and preview files use same-directory atomic replacement. Interruption tests preserve prior files, remove atomic temporaries, release the lock, and leave no trusted manifest. Handoff, CRS, terrain, species-crown cleanup, public behavior, artifact names, graphical feedback, and manifest-last ordering remain unchanged. Commit: local `HEAD`, `refactor: make trees publication transactional`.
+- Deferred visual-enrichment slice: the current explicit `review_only` route imports externally generated segmentation/SAT2LoD2 polygons but does not run a model or promote reviewed candidates into reconstruction inputs. Its module-level development note records the backend/provenance, review/promotion, policy/QA, integration-test, and transactional-publication work required before activation. Revisit file- and directory-level transactional publication as part of developing that stage.
 
 ### Checkpoint 6: Finish the declarative CLI
 
@@ -180,4 +183,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-Complete Checkpoint 5 file-level transactional publication with visual enrichment: add a stage-output lock, move stale-manifest invalidation inside it before validation/work, and replace direct GeoJSON, JSON, report, and overlay writes with same-directory atomic publication. Preserve external segmentation and SAT2LoD2 input selection, review-only behavior, artifact names, graphical feedback, public `plan()`/`run()`, and manifest-last ordering. After that slice, assess directory-level promotion separately before beginning Checkpoint 6.
+Begin Checkpoint 6 with stage-focused CLI argument registration and validation derived from registry metadata. Preserve every current command, option name, default, CLI-over-TOML precedence rule, exit code, and help meaning while moving unrelated stage options out of the single shared parser surface. Keep application-level exception unification as the following focused slice.

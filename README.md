@@ -581,6 +581,8 @@ In that two-zone mode, annular-region buildings are retained as context and are 
 
 The `visual-enrichment` stage reads `<output.root_directory>/01_shapefiles/all_features.geojson`, optional imagery diagnostics, and optional external segmentation polygons from `<output.root_directory>/02_visual_enrichment/segmentation_input.geojson`. It then writes reviewable outputs under `<output.root_directory>/02_visual_enrichment` without overwriting stage-1 authoritative retrieval outputs.
 
+This is a dormant, explicitly selected review adapter rather than a developed segmentation stage. Promotion to `implemented` requires an isolated and reproducible segmentation backend, complete model/source provenance, an auditable human review and candidate-promotion contract, finalized class/confidence/geometry policies, immutable integration fixtures with graphical QA, and transactional locking/atomic publication. Those additions are intentionally deferred and are recorded at the top of `stages/visual_enrichment/stage.py`.
+
 Current outputs include:
 
 - `candidate_building_footprints.geojson`: segmentation-derived footprint refinements and missing-building candidates

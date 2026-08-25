@@ -1,8 +1,29 @@
-"""Segmentation-assisted visual enrichment stage.
+"""Dormant, review-only visual-enrichment adapter.
 
-The executable path ingests segmentation polygons from an external backend and
-writes reviewable candidate layers. It does not run a neural segmentation model
-itself yet, and it does not overwrite stage-1 reconstruction inputs.
+Current status
+--------------
+The registry exposes this stage only through explicit selection with
+``review_only`` maturity. The current executable path imports polygons already
+produced by an external segmentation or SAT2LoD2 backend, writes candidate and
+diagnostic layers, and never promotes those candidates into authoritative
+reconstruction inputs. It does not execute a segmentation model and is not part
+of the default pipeline.
+
+Requirements before promoting this stage to ``implemented``
+------------------------------------------------------------
+* Add an isolated segmentation-backend adapter with reproducible model,
+  version, configuration, and source-imagery provenance.
+* Define the human review, acceptance/rejection, editing, and auditable
+  promotion contract that turns candidates into an authoritative handoff.
+* Finalize semantic-class, confidence, geometry-validation, and downstream
+  compatibility policies with immutable fixtures and graphical QA.
+* Add stage-output locking and same-directory atomic publication for every
+  GeoJSON, JSON, report, overlay, and manifest-last output.
+* Revisit registry selection and documentation only after the complete workflow
+  and failure modes have integration coverage.
+
+Until then, retain this module for reproducible experiments and defer further
+production hardening with the rest of the stage.
 """
 
 from __future__ import annotations
