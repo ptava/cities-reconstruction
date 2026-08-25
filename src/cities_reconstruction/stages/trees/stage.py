@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from cities_reconstruction.artifacts import atomic_write_text, stage_output_lock
 from cities_reconstruction.config import AppConfig, ConfigError
 from cities_reconstruction.geometry.terrain import (
     load_terrain_sampler,
@@ -140,11 +141,17 @@ def run(config: AppConfig) -> TreesStageOutput:
     """Generate deterministic parametric tree meshes from stage-1 tree features."""
 
     output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    invalidate_stage_manifests(
-        output_dir,
-        legacy_names=("tree_models_manifest.json",),
-    )
+    with stage_output_lock(output_dir, STAGE_ID.value):
+        invalidate_stage_manifests(
+            output_dir,
+            legacy_names=("tree_models_manifest.json",),
+        )
+        return _run_locked(config, output_dir)
+
+
+def _run_locked(config: AppConfig, output_dir: Path) -> TreesStageOutput:
+    """Generate tree outputs while the caller owns the stage-output lock."""
+
     if config.region.crs != "EPSG:25832":
         raise ConfigError("tree model generation currently supports EPSG:25832 output coordinates")
 
@@ -193,10 +200,11 @@ def run(config: AppConfig) -> TreesStageOutput:
     species_crown_paths = _write_species_crown_stls(species_crowns_dir, instances, surface_origin_x, surface_origin_y)
 
     species_counts = _species_counts(instances)
-    placement_path.write_text(json.dumps(_placement_geojson(instances), indent=2, sort_keys=True), encoding="utf-8")
-    library_path.write_text(json.dumps(_library_payload(config), indent=2, sort_keys=True), encoding="utf-8")
-    preview_path.write_text(_render_preview(config, instances, surface_origin_x, surface_origin_y), encoding="utf-8")
-    report_path.write_text(
+    atomic_write_text(placement_path, json.dumps(_placement_geojson(instances), indent=2, sort_keys=True))
+    atomic_write_text(library_path, json.dumps(_library_payload(config), indent=2, sort_keys=True))
+    atomic_write_text(preview_path, _render_preview(config, instances, surface_origin_x, surface_origin_y))
+    atomic_write_text(
+        report_path,
         _render_report(
             config,
             tree_features_path,
@@ -214,7 +222,6 @@ def run(config: AppConfig) -> TreesStageOutput:
             surface_origin_y,
             terrain_geometry_path,
         ),
-        encoding="utf-8",
     )
     manifest = publish_trees_manifest(
         TreesPublicationInput(
@@ -331,7 +338,7 @@ def _write_stl(path: Path, name: str, triangles: list[Triangle]) -> None:
             ]
         )
     lines.append(f"endsolid {name}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines) + "\n")
 
 
 def _normal(a: Point3, b: Point3, c: Point3) -> Point3:

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from cities_reconstruction import artifacts
 from cities_reconstruction.config import ConfigError, load_config
 from cities_reconstruction.geometry.terrain import (
     load_terrain_sampler,
@@ -458,17 +459,50 @@ def test_manifest_is_published_after_tree_preview_and_report(tmp_path: Path, mon
     assert published == [result.manifest_path]
 
 
-def test_trees_does_not_claim_universal_stage_output_lock(tmp_path: Path) -> None:
+def test_trees_rejects_concurrent_writer_without_invalidating_manifest(tmp_path: Path) -> None:
     config_path = _prepare_tree_fixture(tmp_path)
     output_dir = tmp_path / "outputs" / "05_trees"
     output_dir.mkdir(parents=True)
     lock_path = output_dir / ".stage.lock"
-    lock_path.write_text("owned by a future transactional runner\n", encoding="utf-8")
+    lock_path.write_text("owned by another runner\n", encoding="utf-8")
+    manifest_path = output_dir / "manifest.json"
+    manifest_path.write_text('{"completed": true}', encoding="utf-8")
 
-    result = trees.run(load_config(config_path))
+    with pytest.raises(ConfigError, match="trees output is locked"):
+        trees.run(load_config(config_path))
 
-    assert result.manifest_path.is_file()
-    assert lock_path.read_text(encoding="utf-8") == "owned by a future transactional runner\n"
+    assert manifest_path.read_text(encoding="utf-8") == '{"completed": true}'
+    assert lock_path.read_text(encoding="utf-8") == "owned by another runner\n"
+
+
+def test_interrupted_tree_surface_publication_preserves_previous_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = _prepare_tree_fixture(tmp_path)
+    output_dir = tmp_path / "outputs" / "05_trees"
+    surfaces_dir = output_dir / "surfaces"
+    surfaces_dir.mkdir(parents=True)
+    trunks_path = surfaces_dir / "tree_trunks.stl"
+    trunks_path.write_text("previous trunks\n", encoding="utf-8")
+    manifest_path = output_dir / "manifest.json"
+    manifest_path.write_text('{"completed": true}', encoding="utf-8")
+    replace = artifacts.os.replace
+
+    def interrupt_trunk_publication(source: Path, destination: Path) -> None:
+        if Path(destination) == trunks_path:
+            raise RuntimeError("interrupted tree surface publication")
+        replace(source, destination)
+
+    monkeypatch.setattr(artifacts.os, "replace", interrupt_trunk_publication)
+
+    with pytest.raises(RuntimeError, match="interrupted tree surface publication"):
+        trees.run(load_config(config_path))
+
+    assert trunks_path.read_text(encoding="utf-8") == "previous trunks\n"
+    assert not manifest_path.exists()
+    assert not (output_dir / ".stage.lock").exists()
+    assert not list(surfaces_dir.glob(".tree_trunks.stl.*.tmp"))
 
 
 def test_trees_rejects_wrong_stage_manifest_for_default_tree_handoff(tmp_path: Path) -> None:
