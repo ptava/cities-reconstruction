@@ -8,6 +8,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from .cli_options import StageCliOption
 from .config import (
     AppConfig,
     ConfigError,
@@ -32,7 +33,7 @@ from .stage_result import StageResult
 from .stage_runtime import StageRunOptions
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(run_stage_name: str | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cities-reconstruction",
         description="Plan city reconstruction workflows for CFD-ready OpenFOAM domains.",
@@ -65,19 +66,28 @@ def build_parser() -> argparse.ArgumentParser:
     run_stage = subparsers.add_parser(
         "run-stage",
         help="Run one implemented pipeline stage.",
+        epilog="Use 'cities-reconstruction run-stage STAGE --help' for stage-specific options.",
     )
     _add_config_argument(run_stage)
-    run_stage.add_argument(
-        "stage",
-        choices=EXECUTABLE_STAGE_NAMES,
-        help="Stage to execute.",
-    )
-    _add_execution_arguments(run_stage)
-    run_stage.add_argument(
-        "--json",
-        action="store_true",
-        help="Emit execution summary as JSON.",
-    )
+    run_stage.set_defaults(**{option.destination: None for option in _all_stage_cli_options()})
+    _add_json_argument(run_stage)
+    if run_stage_name is None:
+        run_stage.add_argument(
+            "stage",
+            choices=EXECUTABLE_STAGE_NAMES,
+            help="Stage to execute.",
+        )
+    else:
+        run_stage.add_argument(
+            "stage",
+            choices=(run_stage_name,),
+            metavar="STAGE",
+            help="Stage to execute.",
+        )
+        _add_execution_arguments(
+            run_stage,
+            STAGE_BY_NAME[run_stage_name].cli_options,
+        )
 
     run = subparsers.add_parser(
         "run",
@@ -96,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Add an optional stage to the default or targeted execution plan.",
     )
-    _add_execution_arguments(run)
+    _add_execution_arguments(run, _all_stage_cli_options())
     run.add_argument(
         "--json",
         action="store_true",
@@ -106,86 +116,35 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _add_execution_arguments(parser: argparse.ArgumentParser) -> None:
+def _add_execution_arguments(
+    parser: argparse.ArgumentParser,
+    options: Sequence[StageCliOption],
+) -> None:
+    for option in options:
+        option.add_to(parser)
+
+
+def _all_stage_cli_options() -> tuple[StageCliOption, ...]:
+    return tuple(option for spec in STAGE_SPECS for option in spec.cli_options)
+
+
+def _add_json_argument(
+    parser: argparse.ArgumentParser,
+) -> None:
     parser.add_argument(
-        "--overpass-json",
-        type=Path,
-        help="Use a cached Overpass JSON file instead of making a network request.",
+        "--json",
+        action="store_true",
+        help="Emit execution summary as JSON.",
     )
-    parser.add_argument(
-        "--streets-shapefile",
-        type=Path,
-        help="Override the conventional named supplemental input 'streets' for this shapefiles-stage run.",
-    )
-    parser.add_argument(
-        "--streets-shapefile-crs",
-        help="Override the CRS of the conventional named supplemental input 'streets'.",
-    )
-    parser.add_argument(
-        "--green-areas-shapefile",
-        type=Path,
-        help="Override the conventional named supplemental input 'green_areas' for this shapefiles-stage run.",
-    )
-    parser.add_argument(
-        "--green-areas-shapefile-crs",
-        help="Override the CRS of the conventional named supplemental input 'green_areas'.",
-    )
-    parser.add_argument(
-        "--segmentation-geojson",
-        type=Path,
-        help="Use external segmentation polygons for the visual-enrichment stage.",
-    )
-    parser.add_argument(
-        "--sat2lod2-geojson",
-        type=Path,
-        help="Use external SAT2LoD2/LOD2BuildingModel 2D building polygons for the visual-enrichment stage.",
-    )
-    parser.add_argument(
-        "--tree-canopy-overlay",
-        type=Path,
-        help=(
-            "Override inputs.tree_canopy_overlay_path for the point-cloud stage. "
-            "When omitted and not configured in TOML, tree-point filtering is skipped."
-        ),
-    )
-    parser.add_argument(
-        "--building-footprints-geojson",
-        type=Path,
-        help=(
-            "Explicitly override the Stage 1 building-footprint GeoJSON for this point-cloud run. "
-            "Relative paths are resolved from the configuration directory."
-        ),
-    )
-    parser.add_argument(
-        "--tree-terrain-geometry",
-        type=Path,
-        help=(
-            "Override inputs.tree_terrain_geometry_path for the trees stage. "
-            "The OBJ or ASCII STL geometry must use the local City4CFD coordinate frame."
-        ),
-    )
-    parser.add_argument(
-        "--model-library",
-        type=Path,
-        help=(
-            "Override air_purifiers.model_library_path for the air-purifiers stage. "
-            "Relative paths are resolved from the configuration directory."
-        ),
-    )
-    parser.add_argument(
-        "--terrain-geometry",
-        type=Path,
-        help=(
-            "Override air_purifiers.terrain_geometry_path for the air-purifiers stage. "
-            "Relative paths are resolved from the configuration directory."
-        ),
-    )
-    _add_city_models_arguments(parser)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    arguments = tuple(sys.argv[1:] if argv is None else argv)
+    parser = build_parser(_selected_run_stage(arguments))
+    args, unknown = parser.parse_known_args(arguments)
+    scope_error = _run_stage_scope_error(args, unknown)
+    if unknown and scope_error is None:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     try:
         config = load_config(args.config)
@@ -236,14 +195,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if execution.completed else 1
 
     if args.command == "run-stage":
-        if args.model_library is not None and args.stage != "air-purifiers":
-            print("--model-library is valid only for the air-purifiers stage", file=sys.stderr)
-            return 2
-        if args.terrain_geometry is not None and args.stage != "air-purifiers":
-            print("--terrain-geometry is valid only for the air-purifiers stage", file=sys.stderr)
-            return 2
-        if args.building_footprints_geojson is not None and args.stage != "point-cloud":
-            print("--building-footprints-geojson is valid only for the point-cloud stage", file=sys.stderr)
+        if scope_error is not None:
+            print(scope_error, file=sys.stderr)
             return 2
         try:
             runner = STAGE_BY_NAME[args.stage].runner
@@ -322,6 +275,58 @@ def _stage_run_options(args: argparse.Namespace) -> StageRunOptions:
     )
 
 
+def _run_stage_scope_error(
+    args: argparse.Namespace,
+    unknown: Sequence[str],
+) -> str | None:
+    if args.command != "run-stage":
+        return None
+    for token in unknown:
+        owner = _stage_cli_option_owner(token.partition("=")[0])
+        if owner is not None:
+            stage_name, option = owner
+            return f"{option.name} is valid only for the {stage_name} stage"
+    return None
+
+
+def _selected_run_stage(arguments: Sequence[str]) -> str | None:
+    if not arguments or arguments[0] != "run-stage":
+        return None
+    remaining_value_count = 0
+    for token in arguments[1:]:
+        if remaining_value_count:
+            remaining_value_count -= 1
+            continue
+        option_name, separator, _value = token.partition("=")
+        if option_name in {"-c", "--config"}:
+            remaining_value_count = 0 if separator else 1
+            continue
+        owner = _stage_cli_option_owner(option_name)
+        if owner is not None:
+            remaining_value_count = 0 if separator else owner[1].value_count
+            continue
+        if token in EXECUTABLE_STAGE_NAMES:
+            return token
+    return None
+
+
+def _stage_cli_option_owner(
+    option_name: str,
+) -> tuple[str, StageCliOption] | None:
+    options = tuple(
+        (spec.name, option, option_string)
+        for spec in STAGE_SPECS
+        for option in spec.cli_options
+        for option_string in option.option_strings
+    )
+    exact = [item for item in options if item[2] == option_name]
+    candidates = exact or [item for item in options if item[2].startswith(option_name)]
+    owners = {(stage_name, option) for stage_name, option, _option_string in candidates}
+    if len(owners) != 1:
+        return None
+    return next(iter(owners))
+
+
 def _supplied_registry_overrides(args: argparse.Namespace) -> frozenset[str]:
     supplied: set[str] = set()
     for spec in STAGE_SPECS:
@@ -340,15 +345,12 @@ def _validate_plan_scoped_options(
     plan: ExecutionPlan,
 ) -> str | None:
     stage_names = frozenset(plan.stage_names)
-    if args.model_library is not None and "air-purifiers" not in stage_names:
-        return "--model-library requires air-purifiers in the execution plan"
-    if args.terrain_geometry is not None and "air-purifiers" not in stage_names:
-        return "--terrain-geometry requires air-purifiers in the execution plan"
-    if (
-        args.building_footprints_geojson is not None
-        and "point-cloud" not in stage_names
-    ):
-        return "--building-footprints-geojson requires point-cloud in the execution plan"
+    for spec in STAGE_SPECS:
+        if spec.name in stage_names:
+            continue
+        for option in spec.cli_options:
+            if getattr(args, option.destination) is not None:
+                return f"{option.name} requires {spec.name} in the execution plan"
     return None
 
 
@@ -382,125 +384,6 @@ def _emit_stage_result(
 
 def _stage_exit_code(result: StageOutput) -> int:
     return 0 if result.status is StageStatus.COMPLETED else 1
-
-
-def _add_city_models_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--city-models-lod",
-        help="Override the City4CFD reconstruction LOD.",
-    )
-    parser.add_argument(
-        "--city-models-top-height",
-        type=float,
-        help="Override the City4CFD domain top height.",
-    )
-    parser.add_argument(
-        "--city-models-bnd-type-bpg",
-        help="Override the City4CFD boundary type for the building-point-generation domain.",
-    )
-    parser.add_argument(
-        "--city-models-bpg-blockage-ratio",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable or disable City4CFD blockage-ratio handling.",
-    )
-    parser.add_argument(
-        "--city-models-flow-direction",
-        nargs=2,
-        type=float,
-        metavar=("X", "Y"),
-        help="Override the City4CFD flow direction vector.",
-    )
-    parser.add_argument(
-        "--city-models-buffer-region",
-        type=float,
-        help="Override the City4CFD buffer region.",
-    )
-    parser.add_argument(
-        "--city-models-reconstruct-boundaries",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable or disable City4CFD boundary reconstruction.",
-    )
-    parser.add_argument(
-        "--city-models-terrain-thinning",
-        type=float,
-        help="Override the City4CFD terrain thinning distance.",
-    )
-    parser.add_argument(
-        "--city-models-smooth-terrain-iterations",
-        type=int,
-        help="Override the number of City4CFD terrain smoothing iterations.",
-    )
-    parser.add_argument(
-        "--city-models-smooth-terrain-max-pts",
-        type=int,
-        help="Override the City4CFD terrain smoothing point limit.",
-    )
-    parser.add_argument(
-        "--city-models-building-percentile",
-        type=float,
-        help="Override the City4CFD building elevation percentile.",
-    )
-    parser.add_argument(
-        "--city-models-edge-max-len",
-        type=float,
-        help="Override the City4CFD maximum edge length.",
-    )
-    parser.add_argument(
-        "--city-models-reconstruction-influence-region",
-        type=float,
-        help="Override the City4CFD reconstruction influence region radius.",
-    )
-    parser.add_argument(
-        "--city-models-reconstruction-complexity-factor",
-        type=float,
-        help="Override the City4CFD reconstruction complexity factor.",
-    )
-    parser.add_argument(
-        "--city-models-reconstruction-validate",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable or disable City4CFD reconstruction validation.",
-    )
-    parser.add_argument(
-        "--city-models-filters-min-area",
-        type=float,
-        help="Override the minimum filtered polygon area.",
-    )
-    parser.add_argument(
-        "--city-models-filters-min-height",
-        type=float,
-        help="Override the minimum filtered polygon height.",
-    )
-    parser.add_argument(
-        "--city-models-output-file-name",
-        help="Override the City4CFD output file base name.",
-    )
-    parser.add_argument(
-        "--city-models-output-format",
-        help="Override the City4CFD output mesh format.",
-    )
-    parser.add_argument(
-        "--city-models-output-separately",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable or disable separate City4CFD outputs.",
-    )
-    parser.add_argument(
-        "--city-models-output-log",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable or disable City4CFD log output.",
-    )
-    parser.add_argument(
-        "--city-models-log-file",
-        help="Override the City4CFD log file name.",
-    )
-    parser.add_argument(
-        "--city-models-docker-image",
-        help="Override the Docker image used by the City4CFD fallback script.",
-    )
 
 
 def _print_dry_run(

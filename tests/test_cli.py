@@ -450,6 +450,43 @@ def test_run_stage_shapefiles_with_cached_overpass_json(tmp_path: Path, monkeypa
     assert json.loads(captured.out) == result.to_dict()
 
 
+def test_run_stage_keeps_common_and_owned_options_position_independent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    raw_path = tmp_path / "overpass.json"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+    raw_path.write_text('{"elements": []}', encoding="utf-8")
+    captured_paths: list[Path | None] = []
+    result = _fake_stage_output()
+
+    def fake_run(_config, overpass_json_path=None):
+        captured_paths.append(overpass_json_path)
+        return result
+
+    monkeypatch.setattr(
+        "cities_reconstruction.stage_runtime.shapefiles.run",
+        fake_run,
+    )
+
+    exit_code = main(
+        [
+            "run-stage",
+            "--overpass-json",
+            str(raw_path),
+            "shapefiles",
+            f"--config={config_path}",
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_paths == [raw_path]
+    assert json.loads(capsys.readouterr().out) == result.to_dict()
+
+
 def test_run_stage_shapefiles_accepts_supplemental_shapefile_overrides(
     tmp_path: Path,
     monkeypatch,
@@ -654,6 +691,50 @@ def test_rejects_building_footprint_override_for_unrelated_stage(tmp_path: Path,
     assert "valid only for the point-cloud stage" in capsys.readouterr().err
 
 
+def test_run_stage_reports_configuration_error_before_wrong_stage_override(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    missing_config = tmp_path / "missing.toml"
+
+    exit_code = main(
+        [
+            "run-stage",
+            "--config",
+            str(missing_config),
+            "trees",
+            "--model-library",
+            "models.json",
+        ]
+    )
+
+    assert exit_code == 2
+    error = capsys.readouterr().err
+    assert error.startswith("Configuration error:")
+    assert "valid only" not in error
+
+
+def test_run_stage_attached_wrong_stage_override_keeps_error_precedence(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    missing_config = tmp_path / "missing.toml"
+
+    exit_code = main(
+        [
+            "run-stage",
+            "trees",
+            f"--config={missing_config}",
+            "--city-models-top-height=410",
+        ]
+    )
+
+    assert exit_code == 2
+    error = capsys.readouterr().err
+    assert error.startswith("Configuration error:")
+    assert "unrecognized arguments" not in error
+
+
 def test_run_stage_trees_json(tmp_path: Path, monkeypatch, capsys) -> None:
     config_path = tmp_path / "config.toml"
     write_complete_config(config_path, output_root=tmp_path / "outputs", name="CLI Trees Fixture")
@@ -824,14 +905,29 @@ def test_cli_air_purifiers_reports_unresolved_model_library(
     )
 
 
-def test_run_stage_help_lists_air_purifier_stage_and_overrides(capsys) -> None:
+def test_run_stage_help_lists_executable_stages_without_unscoped_overrides(
+    capsys,
+) -> None:
     with pytest.raises(SystemExit, match="0"):
         main(["run-stage", "--help"])
 
     output = capsys.readouterr().out
     assert "air-purifiers" in output
+    assert "STAGE --help" in output
+    assert "--model-library" not in output
+    assert "--city-models-top-height" not in output
+
+
+def test_run_stage_air_purifiers_help_lists_only_its_overrides(capsys) -> None:
+    with pytest.raises(SystemExit, match="0"):
+        main(["run-stage", "air-purifiers", "--help"])
+
+    output = capsys.readouterr().out
     assert "--model-library" in output
     assert "--terrain-geometry" in output
+    assert "--overpass-json" not in output
+    assert "--building-footprints-geojson" not in output
+    assert "--city-models-top-height" not in output
 
 
 def test_run_stage_city_models_accepts_argument_overrides(tmp_path: Path, monkeypatch, capsys) -> None:

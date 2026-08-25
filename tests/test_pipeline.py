@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from cities_reconstruction.pipeline import (
     dry_run,
 )
 from cities_reconstruction.stage_layout import STAGE_LAYOUT_BY_ID, StageId
+from cities_reconstruction.stage_runtime import StageRunOptions
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,6 +76,13 @@ def test_stage_registry_owns_executable_runner_bindings() -> None:
     assert executable_specs
     assert all(callable(spec.runner) for spec in executable_specs)
     assert STAGE_BY_NAME["openfoam"].runner is None
+
+
+def test_stage_registry_assigns_each_runtime_override_to_one_stage() -> None:
+    destinations = [option.destination for spec in STAGE_SPECS for option in spec.cli_options]
+
+    assert set(destinations) == {field.name for field in fields(StageRunOptions)}
+    assert len(destinations) == len(set(destinations))
 
 
 def test_point_cloud_registry_uses_shapefiles_as_default_not_dependency() -> None:

@@ -7,6 +7,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from . import stage_runtime
+from .cli_options import (
+    AIR_PURIFIERS_CLI_OPTIONS,
+    CITY_MODELS_CLI_OPTIONS,
+    POINT_CLOUD_CLI_OPTIONS,
+    SHAPEFILES_CLI_OPTIONS,
+    TREES_CLI_OPTIONS,
+    VISUAL_ENRICHMENT_CLI_OPTIONS,
+    StageCliOption,
+)
 from .config import AppConfig, ConfigError
 from .stage_layout import STAGE_LAYOUT_BY_ID, StageId, StageLayout
 from .stage_result import StageResult
@@ -55,6 +64,7 @@ class StageSpec:
     manifest_filename: str | None = None
     hard_dependencies: tuple[StageId, ...] = ()
     inputs: tuple[StageInputSpec, ...] = ()
+    cli_options: tuple[StageCliOption, ...] = ()
 
     @property
     def layout(self) -> StageLayout:
@@ -103,6 +113,7 @@ STAGE_SPECS = (
         planner=shapefiles.plan,
         runner=stage_runtime.run_shapefiles,
         manifest_filename="manifest.json",
+        cli_options=SHAPEFILES_CLI_OPTIONS,
         inputs=(
             StageInputSpec("feature-data", required=True, override="--overpass-json"),
         ),
@@ -115,6 +126,7 @@ STAGE_SPECS = (
         runner=stage_runtime.run_visual_enrichment,
         manifest_filename="manifest.json",
         hard_dependencies=(StageId.SHAPEFILES,),
+        cli_options=VISUAL_ENRICHMENT_CLI_OPTIONS,
         inputs=(
             StageInputSpec("stage-1-features", required=True, default_producer=StageId.SHAPEFILES),
             StageInputSpec("segmentation-polygons", required=False, override="--segmentation-geojson"),
@@ -128,6 +140,7 @@ STAGE_SPECS = (
         planner=point_cloud.plan,
         runner=stage_runtime.run_point_cloud,
         manifest_filename="manifest.json",
+        cli_options=POINT_CLOUD_CLI_OPTIONS,
         inputs=(
             StageInputSpec("dtm-directory", required=True, override="inputs.dtm_directory"),
             StageInputSpec("dsm-directory", required=True, override="inputs.dsm_directory"),
@@ -157,6 +170,7 @@ STAGE_SPECS = (
         runner=stage_runtime.run_city_models,
         manifest_filename="manifest.json",
         hard_dependencies=(StageId.SHAPEFILES, StageId.POINT_CLOUD),
+        cli_options=CITY_MODELS_CLI_OPTIONS,
         inputs=(
             StageInputSpec("stage-1-surfaces", required=True, default_producer=StageId.SHAPEFILES),
             StageInputSpec("point-cloud-manifest", required=True, default_producer=StageId.POINT_CLOUD),
@@ -170,6 +184,7 @@ STAGE_SPECS = (
         runner=stage_runtime.run_trees,
         manifest_filename="manifest.json",
         hard_dependencies=(StageId.SHAPEFILES,),
+        cli_options=TREES_CLI_OPTIONS,
         inputs=(
             StageInputSpec("tree-features", required=True, default_producer=StageId.SHAPEFILES),
             StageInputSpec("terrain-geometry", required=False, override="--tree-terrain-geometry"),
@@ -183,6 +198,7 @@ STAGE_SPECS = (
         runner=stage_runtime.run_air_purifiers,
         manifest_filename="manifest.json",
         hard_dependencies=(StageId.SHAPEFILES,),
+        cli_options=AIR_PURIFIERS_CLI_OPTIONS,
         inputs=(
             StageInputSpec("purifier-features", required=True, default_producer=StageId.SHAPEFILES),
             StageInputSpec("model-library", required=True, override="--model-library"),

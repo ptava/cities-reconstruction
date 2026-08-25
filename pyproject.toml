@@ -46,6 +46,7 @@ include = [
   "src/cities_reconstruction/adapters/*.py",
   "src/cities_reconstruction/artifacts.py",
   "src/cities_reconstruction/cli.py",
+  "src/cities_reconstruction/cli_options.py",
   "src/cities_reconstruction/pipeline.py",
   "src/cities_reconstruction/pipeline_execution.py",
   "src/cities_reconstruction/stage_layout.py",
