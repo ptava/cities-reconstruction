@@ -7,13 +7,14 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import NoReturn
 
 from .cli_options import StageCliOption
 from .config import (
     AppConfig,
-    ConfigError,
     load_config,
 )
+from .errors import ApplicationError, UsageError
 from .pipeline import (
     EXECUTABLE_STAGE_NAMES,
     OPTIONAL_STAGE_NAMES,
@@ -33,8 +34,19 @@ from .stage_result import StageResult
 from .stage_runtime import StageRunOptions
 
 
+class ApplicationArgumentParser(argparse.ArgumentParser):
+    """Argument parser that reports usage failures through the application boundary."""
+
+    def error(self, message: str) -> NoReturn:
+        raise UsageError(
+            message,
+            usage=self.format_usage(),
+            program=self.prog,
+        )
+
+
 def build_parser(run_stage_name: str | None = None) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = ApplicationArgumentParser(
         prog="cities-reconstruction",
         description="Plan city reconstruction workflows for CFD-ready OpenFOAM domains.",
     )
@@ -140,17 +152,22 @@ def _add_json_argument(
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = tuple(sys.argv[1:] if argv is None else argv)
+    try:
+        return _run(arguments)
+    except ApplicationError as exc:
+        return _emit_application_error(exc, as_json=_json_requested(arguments))
+
+
+def _run(arguments: Sequence[str]) -> int:
     parser = build_parser(_selected_run_stage(arguments))
     args, unknown = parser.parse_known_args(arguments)
     scope_error = _run_stage_scope_error(args, unknown)
     if unknown and scope_error is None:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
-    try:
-        config = load_config(args.config)
-    except ConfigError as exc:
-        print(f"Configuration error: {exc}", file=sys.stderr)
-        return 2
+    config = load_config(args.config)
+    if scope_error is not None:
+        raise UsageError(scope_error)
 
     if args.command == "validate-config":
         inner_description = (
@@ -176,40 +193,42 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "run":
-        try:
-            plan = resolve_execution_plan(
-                target=args.target,
-                includes=args.include,
-                supplied_overrides=_supplied_registry_overrides(args),
-            )
-            validation_error = _validate_plan_scoped_options(args, plan)
-            if validation_error is not None:
-                print(validation_error, file=sys.stderr)
-                return 2
-            _emit_execution_plan(plan, as_json=args.json)
-            execution = execute_pipeline(config, plan, _stage_run_options(args))
-        except ConfigError as exc:
-            print(f"Configuration error: {exc}", file=sys.stderr)
-            return 2
+        plan = resolve_execution_plan(
+            target=args.target,
+            includes=args.include,
+            supplied_overrides=_supplied_registry_overrides(args),
+        )
+        validation_error = _validate_plan_scoped_options(args, plan)
+        if validation_error is not None:
+            raise UsageError(validation_error)
+        _emit_execution_plan(plan, as_json=args.json)
+        execution = execute_pipeline(config, plan, _stage_run_options(args))
         _emit_pipeline_execution(execution, as_json=args.json)
         return 0 if execution.completed else 1
 
     if args.command == "run-stage":
-        if scope_error is not None:
-            print(scope_error, file=sys.stderr)
-            return 2
-        try:
-            runner = STAGE_BY_NAME[args.stage].runner
-            if runner is None:
-                parser.error(f"Stage is not executable: {args.stage}")
-            result = runner(config, _stage_run_options(args))
-        except ConfigError as exc:
-            print(f"Configuration error: {exc}", file=sys.stderr)
-            return 2
+        runner = STAGE_BY_NAME[args.stage].runner
+        if runner is None:
+            parser.error(f"Stage is not executable: {args.stage}")
+        result = runner(config, _stage_run_options(args))
         _emit_stage_result(result, as_json=args.json)
         return _stage_exit_code(result)
     parser.error(f"Unhandled command: {args.command}")
     return 2
+
+
+def _json_requested(arguments: Sequence[str]) -> bool:
+    return any(token.partition("=")[0] == "--json" for token in arguments)
+
+
+def _emit_application_error(error: ApplicationError, *, as_json: bool) -> int:
+    if as_json:
+        print(json.dumps({"error": error.to_dict()}, indent=2))
+    else:
+        print(error.format_human(), file=sys.stderr)
+        if isinstance(error, UsageError) and error.program is not None:
+            raise SystemExit(error.exit_code)
+    return error.exit_code
 
 
 def _add_config_argument(parser: argparse.ArgumentParser) -> None:

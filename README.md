@@ -127,6 +127,8 @@ Loaded manifests are bound to their publication location: the declared manifest 
 
 For `run-stage`, exit code `0` means completed, `1` means a terminal execution failure such as `failed_external_execution`, and `2` means a CLI-usage or configuration error. `run` uses the same codes across its aggregate: it prints the resolved plan before external work, stops after the first non-completed result, and returns `0` only when every planned stage completed. Point-cloud preparation always requires building footprints, but `shapefiles` is only their default producer: `--building-footprints-geojson` can supply an accepted file directly. For example, targeting point-cloud with that override runs point-cloud alone; a default core run still needs shapefiles independently for city-model semantic surfaces.
 
+Expected usage, configuration, and pipeline-planning failures share one application error hierarchy. Human-readable commands retain their established stderr diagnostics and exit code `2`; when `--json` is present, the same failures are written to stdout as `{"error": {"category": "usage|configuration|planning", "message": "...", "exit_code": 2}}`. Unexpected programming errors are not translated into user-facing failures. Non-JSON argparse syntax errors continue to print usage and terminate with status `2`.
+
 ## Deferred Development Routes
 
 ### Segmentation-Assisted Visual Enrichment
@@ -164,6 +166,7 @@ This route is implemented only as an external adapter. The repository license/EU
 │   └── cities_reconstruction/
 │       ├── cli.py
 │       ├── config.py
+│       ├── errors.py
 │       ├── artifacts.py
 │       ├── adapters/
 │       ├── geometry/

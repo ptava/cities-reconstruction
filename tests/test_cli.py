@@ -10,6 +10,7 @@ import pytest
 
 from cities_reconstruction.cli import _stage_exit_code, main
 from cities_reconstruction.config import ConfigError
+from cities_reconstruction.errors import PlanningError
 from cities_reconstruction.pipeline import STAGE_BY_NAME
 from cities_reconstruction.stage_contract import ArtifactReference, JsonValue, StageManifest, StageOutput, StageStatus
 from cities_reconstruction.stage_runtime import StageRunOptions
@@ -122,6 +123,43 @@ def test_missing_config_returns_configuration_error(capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 2
     assert "Configuration error" in captured.err
+
+
+def test_missing_config_json_returns_structured_configuration_error(capsys) -> None:
+    exit_code = main(["dry-run", "--config", "missing.toml", "--json"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.err == ""
+    assert json.loads(captured.out) == {
+        "error": {
+            "category": "configuration",
+            "message": "configuration file does not exist: missing.toml",
+            "exit_code": 2,
+        }
+    }
+
+
+def test_invalid_json_cli_value_returns_structured_usage_error(capsys) -> None:
+    exit_code = main(
+        [
+            "run-stage",
+            "--config",
+            str(ROOT / "config/examples/florence.toml"),
+            "city-models",
+            "--city-models-top-height",
+            "invalid",
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.err == ""
+    payload = json.loads(captured.out)
+    assert payload["error"]["category"] == "usage"
+    assert payload["error"]["exit_code"] == 2
+    assert "--city-models-top-height" in payload["error"]["message"]
 
 
 def test_stage_exit_code_uses_shared_status() -> None:
@@ -353,6 +391,29 @@ def test_pipeline_run_rejects_overrides_for_unselected_stages(
     captured = capsys.readouterr()
     assert exit_code == 2
     assert message in captured.err
+
+
+def test_pipeline_planning_error_retains_configuration_human_diagnostic(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    write_complete_config(config_path, output_root=tmp_path / "outputs")
+
+    def fail_plan(**_kwargs):
+        raise PlanningError("pipeline fixture failure")
+
+    monkeypatch.setattr(
+        "cities_reconstruction.cli.resolve_execution_plan",
+        fail_plan,
+    )
+
+    exit_code = main(["run", "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.err == "Configuration error: pipeline fixture failure\n"
 
 
 def test_run_stage_translates_stage_config_error(

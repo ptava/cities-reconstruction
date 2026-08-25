@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from .config import AppConfig, ConfigError
+from .config import AppConfig
+from .errors import PlanningError
 from .pipeline import STAGE_BY_NAME, STAGE_SPECS, StageSelection
 from .stage_contract import JsonValue, StageOutput, StageStatus
 from .stage_layout import StageId
@@ -70,11 +71,11 @@ def resolve_execution_plan(
         if stage_id in visiting:
             cycle = visiting[visiting.index(stage_id) :] + [stage_id]
             names = " -> ".join(item.value for item in cycle)
-            raise ConfigError(f"pipeline dependency cycle: {names}")
+            raise PlanningError(f"pipeline dependency cycle: {names}")
 
         spec = STAGE_BY_NAME[stage_id.value]
         if not spec.executable:
-            raise ConfigError(f"pipeline stage is not executable: {spec.name}")
+            raise PlanningError(f"pipeline stage is not executable: {spec.name}")
 
         visiting.append(stage_id)
         dependencies = list(spec.hard_dependencies)
@@ -108,7 +109,7 @@ def execute_pipeline(
         spec = STAGE_BY_NAME[stage_id.value]
         runner = spec.runner
         if runner is None:
-            raise ConfigError(f"pipeline stage is not executable: {spec.name}")
+            raise PlanningError(f"pipeline stage is not executable: {spec.name}")
         result = runner(config, options)
         results.append(result)
         if result.status is not StageStatus.COMPLETED:
@@ -126,18 +127,18 @@ def _execution_roots(*, target: str | None, includes: tuple[str, ...]) -> tuple[
     else:
         target_spec = STAGE_BY_NAME.get(target)
         if target_spec is None:
-            raise ConfigError(f"unknown pipeline stage: {target}")
+            raise PlanningError(f"unknown pipeline stage: {target}")
         if not target_spec.executable:
-            raise ConfigError(f"pipeline stage is not executable: {target}")
+            raise PlanningError(f"pipeline stage is not executable: {target}")
         roots = [target_spec.stage_id]
 
     for name in includes:
         spec = STAGE_BY_NAME.get(name)
         if spec is None:
-            raise ConfigError(f"unknown optional pipeline stage: {name}")
+            raise PlanningError(f"unknown optional pipeline stage: {name}")
         if spec.selection is not StageSelection.OPTIONAL:
-            raise ConfigError(f"pipeline stage is not optional: {name}")
+            raise PlanningError(f"pipeline stage is not optional: {name}")
         if not spec.executable:
-            raise ConfigError(f"pipeline stage is not executable: {name}")
+            raise PlanningError(f"pipeline stage is not executable: {name}")
         roots.append(spec.stage_id)
     return tuple(roots)

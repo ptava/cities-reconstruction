@@ -160,8 +160,10 @@ def test_dependency_cycle_is_rejected(monkeypatch) -> None:
         ),
     )
 
-    with pytest.raises(ConfigError, match="pipeline dependency cycle"):
+    with pytest.raises(ConfigError, match="pipeline dependency cycle") as exc_info:
         resolve_execution_plan(target="point-cloud")
+
+    assert getattr(exc_info.value, "category", None) == "planning"
 
 
 def test_execute_pipeline_runs_in_order_and_aggregates_typed_results(monkeypatch) -> None:

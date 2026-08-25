@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import tomllib
 
-
-class ConfigError(ValueError):
-    """Raised when a configuration file is missing or invalid."""
+from .errors import ConfigError
 
 
 @dataclass(frozen=True)
