@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import math
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias
 
 from .errors import ConfigError
+
+_TomlTable: TypeAlias = Mapping[str, object]
 
 
 @dataclass(frozen=True)
@@ -177,12 +180,11 @@ def load_config(path: str | Path) -> AppConfig:
 
     try:
         with config_path.open("rb") as handle:
-            raw = tomllib.load(handle)
+            raw_value: object = tomllib.load(handle)
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"invalid TOML in {config_path}: {exc}") from exc
 
-    if not isinstance(raw, dict):
-        raise ConfigError("configuration root must be a TOML table")
+    raw = _validated_table(raw_value, "configuration root must be a TOML table")
 
     _reject_unknown_keys(
         raw,
@@ -355,7 +357,7 @@ def _require_range(name: str, value: float, minimum: float, maximum: float) -> N
         raise ConfigError(f"{name} must be between {minimum:g} and {maximum:g} inclusive")
 
 
-def _parse_region(table: dict[str, Any]) -> RegionConfig:
+def _parse_region(table: _TomlTable) -> RegionConfig:
     _reject_unknown_keys(
         table,
         {"name", "center_lat", "center_lon", "crs", "inner_diameter_m", "outer_diameter_m"},
@@ -391,7 +393,7 @@ def _parse_region(table: dict[str, Any]) -> RegionConfig:
     )
 
 
-def _parse_inputs(table: dict[str, Any], base_dir: Path) -> InputConfig:
+def _parse_inputs(table: _TomlTable, base_dir: Path) -> InputConfig:
     _reject_unknown_keys(
         table,
         {
@@ -446,7 +448,7 @@ def _parse_inputs(table: dict[str, Any], base_dir: Path) -> InputConfig:
     )
 
 
-def _parse_shapefiles(table: dict[str, Any], base_dir: Path) -> ShapefilesConfig:
+def _parse_shapefiles(table: _TomlTable, base_dir: Path) -> ShapefilesConfig:
     _reject_unknown_keys(
         table,
         {
@@ -472,8 +474,7 @@ def _parse_shapefiles(table: dict[str, Any], base_dir: Path) -> ShapefilesConfig
     rules: list[FeatureClassificationRule] = []
     for index, raw_rule in enumerate(raw_rules, start=1):
         section = f"shapefiles.classification_rules[{index}]"
-        if not isinstance(raw_rule, dict):
-            raise ConfigError(f"{section} must be a TOML table")
+        raw_rule = _validated_table(raw_rule, f"{section} must be a TOML table")
         _reject_unknown_keys(raw_rule, {"category", "group_tag", "match_any"}, section)
         category = _required_str(raw_rule, "category", section)
         if category not in supported_categories:
@@ -553,7 +554,7 @@ def _parse_shapefiles(table: dict[str, Any], base_dir: Path) -> ShapefilesConfig
 
 
 def _parse_supplemental_shapefiles(
-    raw_inputs: Any,
+    raw_inputs: object,
     base_dir: Path,
 ) -> tuple[SupplementalShapefileConfig, ...]:
     if not isinstance(raw_inputs, list):
@@ -572,8 +573,7 @@ def _parse_supplemental_shapefiles(
     names: set[str] = set()
     for index, raw_input in enumerate(raw_inputs, start=1):
         section = f"shapefiles.supplemental[{index}]"
-        if not isinstance(raw_input, dict):
-            raise ConfigError(f"{section} must be a TOML table")
+        raw_input = _validated_table(raw_input, f"{section} must be a TOML table")
         _reject_unknown_keys(
             raw_input,
             {"name", "path", "crs", "category", "group_tag", "enabled"},
@@ -617,9 +617,8 @@ def _parse_supplemental_shapefiles(
     return tuple(inputs)
 
 
-def _parse_urban_planning(table: Any, base_dir: Path) -> UrbanPlanningConfig:
-    if not isinstance(table, dict):
-        raise ConfigError("urban_planning must be a TOML table")
+def _parse_urban_planning(raw_table: object, base_dir: Path) -> UrbanPlanningConfig:
+    table = _validated_table(raw_table, "urban_planning must be a TOML table")
     _reject_unknown_keys(table, {"inputs"}, "urban_planning")
     raw_inputs = table.get("inputs", [])
     if not isinstance(raw_inputs, list):
@@ -629,8 +628,7 @@ def _parse_urban_planning(table: Any, base_dir: Path) -> UrbanPlanningConfig:
     names: set[str] = set()
     for index, raw_input in enumerate(raw_inputs, start=1):
         section = f"urban_planning.inputs[{index}]"
-        if not isinstance(raw_input, dict):
-            raise ConfigError(f"{section} must be a TOML table")
+        raw_input = _validated_table(raw_input, f"{section} must be a TOML table")
         _reject_unknown_keys(raw_input, {"name", "path", "crs", "enabled"}, section)
         name = _required_str(raw_input, "name", section)
         if name in names:
@@ -656,7 +654,7 @@ def _parse_urban_planning(table: Any, base_dir: Path) -> UrbanPlanningConfig:
     return UrbanPlanningConfig(tuple(inputs))
 
 
-def _parse_trees(table: dict[str, Any], base_dir: Path) -> TreeConfig:
+def _parse_trees(table: _TomlTable, base_dir: Path) -> TreeConfig:
     _reject_unknown_keys(
         table,
         {"default", "model_library_path", "category_mapping_path"},
@@ -670,11 +668,10 @@ def _parse_trees(table: dict[str, Any], base_dir: Path) -> TreeConfig:
 
 
 def _parse_air_purifiers(
-    table: Any,
+    raw_table: object,
     base_dir: Path,
 ) -> AirPurifiersConfig:
-    if not isinstance(table, dict):
-        raise ConfigError("[air_purifiers] must be a TOML table")
+    table = _validated_table(raw_table, "[air_purifiers] must be a TOML table")
     _reject_unknown_keys(
         table,
         {"model_library_path", "terrain_geometry_path"},
@@ -696,14 +693,14 @@ def _parse_air_purifiers(
     )
 
 
-def _parse_output(table: dict[str, Any], base_dir: Path) -> OutputConfig:
+def _parse_output(table: _TomlTable, base_dir: Path) -> OutputConfig:
     _reject_unknown_keys(table, {"root_directory"}, "output")
     return OutputConfig(
         root_directory=_required_path(table, "root_directory", "output", base_dir),
     )
 
 
-def _parse_imagery(table: dict[str, Any]) -> ImageryConfig:
+def _parse_imagery(table: _TomlTable) -> ImageryConfig:
     _reject_unknown_keys(table, {"sources"}, "imagery")
     raw_sources = _required_list(table, "sources", "imagery")
     if not isinstance(raw_sources, list):
@@ -711,9 +708,8 @@ def _parse_imagery(table: dict[str, Any]) -> ImageryConfig:
 
     sources: list[ImagerySourceConfig] = []
     for index, source in enumerate(raw_sources, start=1):
-        if not isinstance(source, dict):
-            raise ConfigError(f"imagery.sources[{index}] must be a TOML table")
         section = f"imagery.sources[{index}]"
+        source = _validated_table(source, f"{section} must be a TOML table")
         _reject_unknown_keys(
             source,
             {
@@ -766,7 +762,7 @@ def _parse_imagery(table: dict[str, Any]) -> ImageryConfig:
     return ImageryConfig(sources=tuple(sources))
 
 
-def _parse_city_models(table: dict[str, Any]) -> CityModelsConfig:
+def _parse_city_models(table: _TomlTable) -> CityModelsConfig:
     _reject_unknown_keys(
         table,
         {
@@ -892,15 +888,19 @@ def _parse_city_models(table: dict[str, Any]) -> CityModelsConfig:
     )
 
 
-def _required_table(root: dict[str, Any], name: str, section: str | None = None) -> dict[str, Any]:
+def _validated_table(value: object, error_message: str) -> _TomlTable:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise ConfigError(error_message)
+    return value
+
+
+def _required_table(root: _TomlTable, name: str, section: str | None = None) -> _TomlTable:
     table = root.get(name)
-    if not isinstance(table, dict):
-        table_name = f"{section}.{name}" if section else name
-        raise ConfigError(f"missing required [{table_name}] table")
-    return table
+    table_name = f"{section}.{name}" if section else name
+    return _validated_table(table, f"missing required [{table_name}] table")
 
 
-def _reject_unknown_keys(table: dict[str, Any], allowed: set[str], section: str) -> None:
+def _reject_unknown_keys(table: _TomlTable, allowed: set[str], section: str) -> None:
     unknown = sorted(set(table) - allowed)
     if not unknown:
         return
@@ -909,21 +909,21 @@ def _reject_unknown_keys(table: dict[str, Any], allowed: set[str], section: str)
     raise ConfigError(f"unknown configuration {label}: {', '.join(qualified)}")
 
 
-def _required_str(table: dict[str, Any], key: str, section: str) -> str:
+def _required_str(table: _TomlTable, key: str, section: str) -> str:
     value = table.get(key)
     if not isinstance(value, str) or not value:
         raise ConfigError(f"{section}.{key} must be a non-empty string")
     return value
 
 
-def _required_number(table: dict[str, Any], key: str, section: str) -> float:
+def _required_number(table: _TomlTable, key: str, section: str) -> float:
     value = table.get(key)
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ConfigError(f"{section}.{key} must be a number")
     return float(value)
 
 
-def _optional_number(table: dict[str, Any], key: str, section: str) -> float | None:
+def _optional_number(table: _TomlTable, key: str, section: str) -> float | None:
     value = table.get(key)
     if value is None:
         return None
@@ -932,21 +932,21 @@ def _optional_number(table: dict[str, Any], key: str, section: str) -> float | N
     return float(value)
 
 
-def _required_int(table: dict[str, Any], key: str, section: str) -> int:
+def _required_int(table: _TomlTable, key: str, section: str) -> int:
     value = table.get(key)
     if isinstance(value, bool) or not isinstance(value, int):
         raise ConfigError(f"{section}.{key} must be an integer")
     return value
 
 
-def _required_bool(table: dict[str, Any], key: str, section: str) -> bool:
+def _required_bool(table: _TomlTable, key: str, section: str) -> bool:
     value = table.get(key)
     if not isinstance(value, bool):
         raise ConfigError(f"{section}.{key} must be a boolean")
     return value
 
 
-def _required_list(table: dict[str, Any], key: str, section: str) -> list[Any]:
+def _required_list(table: _TomlTable, key: str, section: str) -> list[object]:
     value = table.get(key)
     if not isinstance(value, list):
         raise ConfigError(f"{section}.{key} must be a list")
@@ -954,7 +954,7 @@ def _required_list(table: dict[str, Any], key: str, section: str) -> list[Any]:
 
 
 def _required_float_pair(
-    table: dict[str, Any],
+    table: _TomlTable,
     key: str,
     section: str,
 ) -> tuple[float, float]:
@@ -972,14 +972,14 @@ def _required_float_pair(
     return float(first), float(second)
 
 
-def _required_path(table: dict[str, Any], key: str, section: str, base_dir: Path) -> Path:
+def _required_path(table: _TomlTable, key: str, section: str, base_dir: Path) -> Path:
     value = table.get(key)
     if not isinstance(value, str) or not value:
         raise ConfigError(f"{section}.{key} must be a non-empty path string")
     return _resolve_path(value, base_dir)
 
 
-def _optional_path(table: dict[str, Any], key: str, section: str, base_dir: Path) -> Path | None:
+def _optional_path(table: _TomlTable, key: str, section: str, base_dir: Path) -> Path | None:
     value = table.get(key)
     if value is None:
         return None

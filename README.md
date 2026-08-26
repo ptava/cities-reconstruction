@@ -262,7 +262,7 @@ uv run mypy
 uv run pytest -q --cov=cities_reconstruction --cov-branch --cov-report=term-missing
 ```
 
-The workflow in `.github/workflows/quality.yml` runs on every push and pull request with Python 3.11, a lockfile-verified development environment, read-only repository permissions, and dependency caching. Ruff checks the complete production package plus the maintained test boundary listed in `pyproject.toml`, and configured mypy checks the complete `cities_reconstruction` package. Coverage measures that package with branch tracking and enforces the configured baseline.
+The workflow in `.github/workflows/quality.yml` runs on every push and pull request with Python 3.11, a lockfile-verified development environment, read-only repository permissions, and dependency caching. Ruff checks the complete production package plus the maintained test boundary listed in `pyproject.toml`, and configured mypy checks the complete `cities_reconstruction` package. Raw TOML tables are validated and narrowed to string-keyed mappings before field-specific parsing builds the typed application configuration. Coverage measures the complete package with branch tracking and enforces the configured baseline.
 
 ## Usage
 

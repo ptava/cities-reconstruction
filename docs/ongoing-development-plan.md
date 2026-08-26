@@ -23,10 +23,10 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 ## Current checkpoint
 
 - Last updated: 2026-08-26.
-- Source baseline: package-wide configured Ruff and mypy scope is complete in the current working-tree change; inspect the live checkout and Git history for the aligned configuration, verification, and documentation changes.
+- Source baseline: the first validated external-boundary typing slice is complete in the current working-tree change on top of `04b9c3a`; inspect the live checkout and Git history for the aligned implementation, verification, and documentation changes.
 - The live checkout and Git history remain the source of truth; do not expect this document to contain the hash of the commit that updates the document itself.
-- Most recently completed code slice: Ruff derives its complete production-package scope from one recursive include while retaining the established curated test boundary; configured mypy checks the complete package directory, so CI no longer needs a duplicate explicit full-package mypy step. Four inherited source import-order findings were normalized without behavioral changes. Commit: current working tree, proposed `chore: expand Python quality scope`.
-- Verification baseline: workflow YAML parses successfully; `uv sync --locked --group dev` succeeds; package-wide Ruff passes; configured mypy passes for all 68 source files; and the suite passes 497 tests with 86.76% branch coverage on Python 3.11.12. `.codegraph/` remains intentionally untracked.
+- Most recently completed code slice: raw TOML root and nested tables are validated once and exposed to configuration parsers as read-only `Mapping[str, object]` values. Parser helpers no longer propagate `Any`; established field validation, diagnostics, path resolution, defaults, and `AppConfig` values remain unchanged. Commit: current working tree, proposed `refactor: type TOML configuration boundary`.
+- Verification baseline: `uv sync --locked --group dev` succeeds; the 97 focused configuration tests pass; package-wide Ruff passes; configured mypy passes for all 68 source files; and the full suite passes 497 tests with 86.88% branch coverage on Python 3.11.12. `.codegraph/` remains intentionally untracked.
 - The recorded cross-source-policy verification baseline remains historical. Like-for-like coverage evidence clears the stage-package review: Python 3.11.12 feature coverage was 85.91% versus the recorded 85.88%; Python 3.13.12 feature coverage was 85.73% versus the `08d2cd4` baseline of 85.71%. The earlier 85.73%-versus-85.88% comparison mixed runtimes and is not a refactor regression.
 
 ## Baseline priorities and status
@@ -39,7 +39,7 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
 | 5 | Transactional output handling | Complete for active stages; deferred route excluded | Manifest-last is universal. Active stages use the required file-level transaction contract. Shapefiles and trees completed the remaining active work; visual enrichment hardening is deferred with that dormant review-only stage until its backend, review, and promotion workflow are developed. |
 | 6 | Declarative uniformly typed CLI | Complete in `fc372e4` | Registry dispatch, immutable CLI-independent `StageRunOptions`, registry-owned stage-focused argument registration and validation, and one application exception hierarchy with uniform human/JSON errors are complete. |
-| 7 | Python quality gates | Partial/advanced | Package-wide Ruff and configured mypy, branch coverage, documented commands, and GitHub Actions CI exist. Optional pre-commit, stronger validated boundary types, and a deliberate coverage-floor decision remain. |
+| 7 | Python quality gates | Partial/advanced | Package-wide Ruff and configured mypy, branch coverage, documented commands, and GitHub Actions CI exist. Optional pre-commit was declined as redundant with authoritative CI, and the raw TOML boundary is typed without `Any`; further external boundaries and a deliberate coverage-floor decision remain. |
 | 8 | Central geospatial transformations | Not started | EPSG:25832 conversion remains duplicated across five stage modules. Add a shared CRS adapter and evaluate maintained readers separately. |
 | 9 | Tests independent from mutable demonstration assets | Partial | The Mercato AP-007 mismatch is fixed, but behavioral tests still read a mutable documentation asset. Add immutable `tests/data/` fixtures and retain separate canonical-asset tests. |
 | 10 | README operational truth | Complete and continuous | The stage-status table and limitations are current. Keep README, code, tests, and graphical QA instructions aligned after every change. |
@@ -149,11 +149,12 @@ Status: complete for active stages. Transactional hardening and directory-level 
 
 - Add CI running Ruff, mypy, and full pytest branch coverage.
 - Expand configured Ruff/mypy scope toward the full package.
-- Add optional pre-commit only after CI commands are stable.
+- Keep GitHub Actions as the authoritative shared gate; optional pre-commit was considered after CI stabilized and declined at the user's direction because it duplicates the maintained Ruff and mypy commands.
 - Type validated external-data boundaries incrementally.
 - Reassess the 70% coverage floor against the maintained 85% result rather than raising it blindly.
 - Completed CI slice: `.github/workflows/quality.yml` runs on pushes and pull requests with read-only repository permissions, Python 3.11, a lockfile-verified development environment, and separate Ruff, configured mypy, and pytest branch-coverage steps. Maintained third-party actions are pinned to immutable release SHAs, `uv` uses its checksum-backed `latest-known` release, and README documents the exact local command sequence. Commit: `917cf75 ci: add Python quality workflow`.
-- Completed package-wide configured-scope slice: Ruff recursively checks every production-package Python file while retaining the established curated test boundary. Configured mypy checks all 68 package files directly, making the former duplicate full-package invocation unnecessary. Four source import blocks were normalized to clear the measured inherited Ruff debt without changing behavior. Proposed commit: `chore: expand Python quality scope`.
+- Completed package-wide configured-scope slice: Ruff recursively checks every production-package Python file while retaining the established curated test boundary. Configured mypy checks all 68 package files directly, making the former duplicate full-package invocation unnecessary. Four source import blocks were normalized to clear the measured inherited Ruff debt without changing behavior. Commit: `04b9c3a chore: check full Python package with Ruff and mypy`.
+- Completed raw-TOML-boundary slice: `config.py` validates root, required, optional, and list-contained TOML tables through one helper and exposes them as read-only string-keyed mappings. Parser and field helpers use `object` plus runtime narrowing instead of propagating `Any`, while all established configuration behavior and diagnostics remain stable. Proposed commit: `refactor: type TOML configuration boundary`.
 
 ### Checkpoint 8: Centralize geospatial transformations
 
@@ -188,4 +189,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-Continue Checkpoint 7 with optional pre-commit as its own reviewable slice now that the maintained CI commands are stable. Keep stronger external-boundary typing and any coverage-floor change separate; reassess the 70% floor against maintained multi-run evidence before changing it.
+Continue Checkpoint 7 with a separate coverage-floor decision. Reconcile the configured 70% threshold with the maintained 85.73% to 86.88% multi-runtime evidence, document the required safety margin, and change the threshold only if that evidence supports a stable gate. Do not combine the decision with another external-boundary typing slice.
