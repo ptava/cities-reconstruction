@@ -23,10 +23,10 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 ## Current checkpoint
 
 - Last updated: 2026-08-25.
-- Source baseline: application-level exception unification is complete in the current working-tree change; inspect the live checkout and Git history for the aligned source, test, quality-gate, and documentation changes.
+- Source baseline: GitHub Actions quality CI is complete in the current working-tree change; inspect the live checkout and Git history for the aligned workflow, verification, and documentation changes.
 - The live checkout and Git history remain the source of truth; do not expect this document to contain the hash of the commit that updates the document itself.
-- Most recently completed code slice: expected usage, configuration, and pipeline-planning failures share `ApplicationError`; `ConfigError` remains import-compatible and a `ValueError`, planning failures remain compatible with `ConfigError`, and argparse syntax failures retain their established human usage/`SystemExit(2)` behavior. `--json` renders the same expected failures as a stable error object without catching unexpected programming errors. Commands, option names, defaults, CLI-over-TOML precedence, diagnostics, terminal-stage results, and exit codes remain stable. Commit: current working tree, proposed `refactor: unify application error handling`.
-- Verification baseline: the suite passes 497 tests with 86.76% branch coverage on Python 3.11.12; Ruff passes, configured mypy passes for 18 source files, and full-package mypy passes for 68 source files. The new `errors.py` is formatted; the repository-wide formatter check still reports inherited formatting debt outside this focused slice. `.codegraph/` remains intentionally untracked.
+- Most recently completed code slice: `.github/workflows/quality.yml` runs the documented Ruff, configured mypy, full-package mypy, and full pytest branch-coverage commands on every push and pull request using Python 3.11 and a lockfile-verified `uv` development environment. The workflow has read-only repository permissions, a 30-minute timeout, dependency caching, and immutable action SHAs for `actions/checkout` v7.0.1, `actions/setup-python` v7.0.0, and `astral-sh/setup-uv` v10.0.1. Commit: current working tree, proposed `ci: add Python quality workflow`.
+- Verification baseline: workflow YAML parses successfully; `uv sync --locked --group dev` succeeds; the suite passes 497 tests with 86.76% branch coverage on Python 3.11.12; Ruff passes, configured mypy passes for 18 source files, and full-package mypy passes for 68 source files. `.codegraph/` remains intentionally untracked.
 - The recorded cross-source-policy verification baseline remains historical. Like-for-like coverage evidence clears the stage-package review: Python 3.11.12 feature coverage was 85.91% versus the recorded 85.88%; Python 3.13.12 feature coverage was 85.73% versus the `08d2cd4` baseline of 85.71%. The earlier 85.73%-versus-85.88% comparison mixed runtimes and is not a refactor regression.
 
 ## Baseline priorities and status
@@ -39,7 +39,7 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
 | 5 | Transactional output handling | Complete for active stages; deferred route excluded | Manifest-last is universal. Active stages use the required file-level transaction contract. Shapefiles and trees completed the remaining active work; visual enrichment hardening is deferred with that dormant review-only stage until its backend, review, and promotion workflow are developed. |
 | 6 | Declarative uniformly typed CLI | Complete in the current working tree | Registry dispatch, immutable CLI-independent `StageRunOptions`, registry-owned stage-focused argument registration and validation, and one application exception hierarchy with uniform human/JSON errors are complete. |
-| 7 | Python quality gates | Partial/advanced | Ruff, mypy, branch coverage, and documented commands exist. CI, optional pre-commit, expanded configured scope, and stronger validated boundary types remain. |
+| 7 | Python quality gates | Partial/advanced | Ruff, configured and full-package mypy, branch coverage, documented commands, and GitHub Actions CI exist. Optional pre-commit, package-wide configured scope, and stronger validated boundary types remain. |
 | 8 | Central geospatial transformations | Not started | EPSG:25832 conversion remains duplicated across five stage modules. Add a shared CRS adapter and evaluate maintained readers separately. |
 | 9 | Tests independent from mutable demonstration assets | Partial | The Mercato AP-007 mismatch is fixed, but behavioral tests still read a mutable documentation asset. Add immutable `tests/data/` fixtures and retain separate canonical-asset tests. |
 | 10 | README operational truth | Complete and continuous | The stage-status table and limitations are current. Keep README, code, tests, and graphical QA instructions aligned after every change. |
@@ -152,6 +152,7 @@ Status: complete for active stages. Transactional hardening and directory-level 
 - Add optional pre-commit only after CI commands are stable.
 - Type validated external-data boundaries incrementally.
 - Reassess the 70% coverage floor against the maintained 85% result rather than raising it blindly.
+- Completed CI slice: `.github/workflows/quality.yml` runs on pushes and pull requests with read-only repository permissions, Python 3.11, a lockfile-verified development environment, and separate Ruff, configured mypy, full-package mypy, and pytest branch-coverage steps. Maintained third-party actions are pinned to immutable release SHAs, `uv` uses its checksum-backed `latest-known` release, and README documents the exact local command sequence. Proposed commit: `ci: add Python quality workflow`.
 
 ### Checkpoint 8: Centralize geospatial transformations
 
@@ -186,4 +187,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-Begin Checkpoint 7 by adding CI that runs Ruff, configured and full-package mypy, and the full pytest suite with branch coverage using the documented local commands. Keep optional pre-commit and any coverage-floor change separate until the CI commands are stable.
+Continue Checkpoint 7 by making the configured Ruff and mypy scope package-wide. First measure Ruff findings in the currently excluded source files, then replace enumerated source-file scopes in reviewable slices if inherited debt requires it; full-package mypy is already clean. Keep optional pre-commit, stronger boundary typing, and any coverage-floor change separate.

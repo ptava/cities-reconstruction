@@ -157,6 +157,9 @@ This route is implemented only as an external adapter. The repository license/EU
 
 ```text
 .
+├── .github/
+│   └── workflows/
+│       └── quality.yml
 ├── config/
 │   └── examples/
 │       └── florence.toml
@@ -250,15 +253,17 @@ uv run pytest
 
 New tests should use `pytest` fixtures and assertions. `uv run pytest` is the project-standard test command.
 
-Run the incremental Python quality checks:
+Run the same Python quality checks used by GitHub Actions:
 
 ```bash
-uv run ruff check
+uv sync --locked --group dev
+uv run ruff check .
 uv run mypy
-uv run pytest -q --cov=cities_reconstruction --cov-report=term-missing
+uv run mypy src/cities_reconstruction
+uv run pytest -q --cov=cities_reconstruction --cov-branch --cov-report=term-missing
 ```
 
-Ruff and mypy initially cover the pipeline, CLI, runtime-adapter, artifact, stage-result, and City4CFD adapter boundaries plus their focused tests. This scope is intentionally expanded as the larger stage modules are decomposed; coverage measures the complete `cities_reconstruction` package and enforces the configured baseline.
+The workflow in `.github/workflows/quality.yml` runs on every push and pull request with Python 3.11, a lockfile-verified development environment, read-only repository permissions, and dependency caching. Configured mypy covers the incrementally maintained boundary listed in `pyproject.toml`; the separate full-package invocation prevents errors elsewhere from being hidden while that configured scope expands. Coverage measures the complete `cities_reconstruction` package with branch tracking and enforces the configured baseline.
 
 ## Usage
 
