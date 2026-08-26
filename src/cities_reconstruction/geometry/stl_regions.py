@@ -8,7 +8,6 @@ from pathlib import Path
 from cities_reconstruction.artifacts import atomic_text_writer
 from cities_reconstruction.config import ConfigError
 
-
 Point3 = tuple[float, float, float]
 Triangle = tuple[Point3, Point3, Point3]
 RegionMesh = dict[str, list[Triangle]]

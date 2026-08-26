@@ -40,8 +40,5 @@ jobs:
       - name: Run configured mypy
         run: uv run mypy
 
-      - name: Run full-package mypy
-        run: uv run mypy src/cities_reconstruction
-
       - name: Run pytest with branch coverage
         run: uv run pytest -q --cov=cities_reconstruction --cov-branch --cov-report=term-missing

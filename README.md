@@ -259,11 +259,10 @@ Run the same Python quality checks used by GitHub Actions:
 uv sync --locked --group dev
 uv run ruff check .
 uv run mypy
-uv run mypy src/cities_reconstruction
 uv run pytest -q --cov=cities_reconstruction --cov-branch --cov-report=term-missing
 ```
 
-The workflow in `.github/workflows/quality.yml` runs on every push and pull request with Python 3.11, a lockfile-verified development environment, read-only repository permissions, and dependency caching. Configured mypy covers the incrementally maintained boundary listed in `pyproject.toml`; the separate full-package invocation prevents errors elsewhere from being hidden while that configured scope expands. Coverage measures the complete `cities_reconstruction` package with branch tracking and enforces the configured baseline.
+The workflow in `.github/workflows/quality.yml` runs on every push and pull request with Python 3.11, a lockfile-verified development environment, read-only repository permissions, and dependency caching. Ruff checks the complete production package plus the maintained test boundary listed in `pyproject.toml`, and configured mypy checks the complete `cities_reconstruction` package. Coverage measures that package with branch tracking and enforces the configured baseline.
 
 ## Usage
 

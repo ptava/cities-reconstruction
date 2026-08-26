@@ -33,6 +33,8 @@ from cities_reconstruction.stage_contract import (
 )
 from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
+from cities_reconstruction.urban_planning import load_inputs as load_urban_planning_inputs
+
 from . import policy as shapefiles_policy
 from .diagnostics import (
     build_geometry_diagnostics,
@@ -76,7 +78,6 @@ from .transformation import (
 from .transformation import (
     _project_coordinate_m as _project_coordinate_m,
 )
-from cities_reconstruction.urban_planning import load_inputs as load_urban_planning_inputs
 
 STAGE_ID = StageId.SHAPEFILES
 

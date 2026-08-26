@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import math
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from cities_reconstruction.config import AppConfig, ConfigError
-
 
 WEB_MERCATOR_RADIUS_M = 6_378_137.0
 WEB_MERCATOR_LIMIT_M = math.pi * WEB_MERCATOR_RADIUS_M

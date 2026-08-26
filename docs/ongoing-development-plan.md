@@ -22,11 +22,11 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 
 ## Current checkpoint
 
-- Last updated: 2026-08-25.
-- Source baseline: GitHub Actions quality CI is complete in the current working-tree change; inspect the live checkout and Git history for the aligned workflow, verification, and documentation changes.
+- Last updated: 2026-08-26.
+- Source baseline: package-wide configured Ruff and mypy scope is complete in the current working-tree change; inspect the live checkout and Git history for the aligned configuration, verification, and documentation changes.
 - The live checkout and Git history remain the source of truth; do not expect this document to contain the hash of the commit that updates the document itself.
-- Most recently completed code slice: `.github/workflows/quality.yml` runs the documented Ruff, configured mypy, full-package mypy, and full pytest branch-coverage commands on every push and pull request using Python 3.11 and a lockfile-verified `uv` development environment. The workflow has read-only repository permissions, a 30-minute timeout, dependency caching, and immutable action SHAs for `actions/checkout` v7.0.1, `actions/setup-python` v7.0.0, and `astral-sh/setup-uv` v10.0.1. Commit: current working tree, proposed `ci: add Python quality workflow`.
-- Verification baseline: workflow YAML parses successfully; `uv sync --locked --group dev` succeeds; the suite passes 497 tests with 86.76% branch coverage on Python 3.11.12; Ruff passes, configured mypy passes for 18 source files, and full-package mypy passes for 68 source files. `.codegraph/` remains intentionally untracked.
+- Most recently completed code slice: Ruff derives its complete production-package scope from one recursive include while retaining the established curated test boundary; configured mypy checks the complete package directory, so CI no longer needs a duplicate explicit full-package mypy step. Four inherited source import-order findings were normalized without behavioral changes. Commit: current working tree, proposed `chore: expand Python quality scope`.
+- Verification baseline: workflow YAML parses successfully; `uv sync --locked --group dev` succeeds; package-wide Ruff passes; configured mypy passes for all 68 source files; and the suite passes 497 tests with 86.76% branch coverage on Python 3.11.12. `.codegraph/` remains intentionally untracked.
 - The recorded cross-source-policy verification baseline remains historical. Like-for-like coverage evidence clears the stage-package review: Python 3.11.12 feature coverage was 85.91% versus the recorded 85.88%; Python 3.13.12 feature coverage was 85.73% versus the `08d2cd4` baseline of 85.71%. The earlier 85.73%-versus-85.88% comparison mixed runtimes and is not a refactor regression.
 
 ## Baseline priorities and status
@@ -38,8 +38,8 @@ Do not silently reorder the baseline priorities. If implementation dependencies 
 | 3 | Break up god modules | Complete | The shapefiles, point-cloud, and planned City4CFD decompositions are complete. City4CFD presentation, diagnostics, publication, inputs, and domain geometry now live in focused sibling modules, reducing `city_models/stage.py` from 2,067 to 822 lines while preserving public `plan()`/`run()`. |
 | 4 | Shared stage contracts | Complete | All six executable stages publish schema-version-2 manifests using shared status, manifest, output, provenance, artifact-reference, and consumer-validation rules. |
 | 5 | Transactional output handling | Complete for active stages; deferred route excluded | Manifest-last is universal. Active stages use the required file-level transaction contract. Shapefiles and trees completed the remaining active work; visual enrichment hardening is deferred with that dormant review-only stage until its backend, review, and promotion workflow are developed. |
-| 6 | Declarative uniformly typed CLI | Complete in the current working tree | Registry dispatch, immutable CLI-independent `StageRunOptions`, registry-owned stage-focused argument registration and validation, and one application exception hierarchy with uniform human/JSON errors are complete. |
-| 7 | Python quality gates | Partial/advanced | Ruff, configured and full-package mypy, branch coverage, documented commands, and GitHub Actions CI exist. Optional pre-commit, package-wide configured scope, and stronger validated boundary types remain. |
+| 6 | Declarative uniformly typed CLI | Complete in `fc372e4` | Registry dispatch, immutable CLI-independent `StageRunOptions`, registry-owned stage-focused argument registration and validation, and one application exception hierarchy with uniform human/JSON errors are complete. |
+| 7 | Python quality gates | Partial/advanced | Package-wide Ruff and configured mypy, branch coverage, documented commands, and GitHub Actions CI exist. Optional pre-commit, stronger validated boundary types, and a deliberate coverage-floor decision remain. |
 | 8 | Central geospatial transformations | Not started | EPSG:25832 conversion remains duplicated across five stage modules. Add a shared CRS adapter and evaluate maintained readers separately. |
 | 9 | Tests independent from mutable demonstration assets | Partial | The Mercato AP-007 mismatch is fixed, but behavioral tests still read a mutable documentation asset. Add immutable `tests/data/` fixtures and retain separate canonical-asset tests. |
 | 10 | README operational truth | Complete and continuous | The stage-status table and limitations are current. Keep README, code, tests, and graphical QA instructions aligned after every change. |
@@ -136,14 +136,14 @@ Status: complete for active stages. Transactional hardening and directory-level 
 
 ### Checkpoint 6: Finish the declarative CLI
 
-- Status: complete in the current working tree.
+- Status: complete in `fc372e4`.
 - Add focused per-stage argument registration and validation derived from the registry.
 - Classify every stage input as persistent TOML configuration, a one-run CLI override, or both; when both are supported, preserve explicit CLI-over-TOML precedence and derive help and validation from registry metadata where practical.
 - Remove unrelated options from a single shared parser surface.
 - Introduce one application-level exception hierarchy and uniform human/JSON error behavior.
 - Use separate commits for parser declaration and error unification if review scope becomes large.
 - Completed parser-declaration slice: declarative `StageCliOption` records preserve established spelling, parsing, defaults, and help text; each executable `StageSpec` owns exactly its runtime overrides; two-phase stage selection gives `run-stage` a focused parser and help while preserving option placement; dependency-aware `run` retains the ordered union and derives plan-scope errors from the registry. Registry-known wrong-stage options retain status `2` and their established diagnostics, while unknown syntax remains argparse-owned. Runtime adapters and `StageRunOptions` remain CLI-independent. Commit: `93e9438 refactor: make CLI arguments stage-focused`.
-- Completed application-error slice: `ApplicationError` provides stable category, message, and exit-code data for expected failures; `UsageError`, `ConfigError`, and the backwards-compatible `PlanningError` specialization cover CLI scope/syntax, input/configuration, and dependency-plan failures. Human diagnostics retain stderr formatting and non-JSON argparse termination, while `--json` emits one machine-readable error object to stdout. Unexpected exceptions still propagate. Proposed commit: `refactor: unify application error handling`.
+- Completed application-error slice: `ApplicationError` provides stable category, message, and exit-code data for expected failures; `UsageError`, `ConfigError`, and the backwards-compatible `PlanningError` specialization cover CLI scope/syntax, input/configuration, and dependency-plan failures. Human diagnostics retain stderr formatting and non-JSON argparse termination, while `--json` emits one machine-readable error object to stdout. Unexpected exceptions still propagate. Commit: `fc372e4 refactor: unify application error handling`.
 
 ### Checkpoint 7: Complete quality infrastructure
 
@@ -152,7 +152,8 @@ Status: complete for active stages. Transactional hardening and directory-level 
 - Add optional pre-commit only after CI commands are stable.
 - Type validated external-data boundaries incrementally.
 - Reassess the 70% coverage floor against the maintained 85% result rather than raising it blindly.
-- Completed CI slice: `.github/workflows/quality.yml` runs on pushes and pull requests with read-only repository permissions, Python 3.11, a lockfile-verified development environment, and separate Ruff, configured mypy, full-package mypy, and pytest branch-coverage steps. Maintained third-party actions are pinned to immutable release SHAs, `uv` uses its checksum-backed `latest-known` release, and README documents the exact local command sequence. Proposed commit: `ci: add Python quality workflow`.
+- Completed CI slice: `.github/workflows/quality.yml` runs on pushes and pull requests with read-only repository permissions, Python 3.11, a lockfile-verified development environment, and separate Ruff, configured mypy, and pytest branch-coverage steps. Maintained third-party actions are pinned to immutable release SHAs, `uv` uses its checksum-backed `latest-known` release, and README documents the exact local command sequence. Commit: `917cf75 ci: add Python quality workflow`.
+- Completed package-wide configured-scope slice: Ruff recursively checks every production-package Python file while retaining the established curated test boundary. Configured mypy checks all 68 package files directly, making the former duplicate full-package invocation unnecessary. Four source import blocks were normalized to clear the measured inherited Ruff debt without changing behavior. Proposed commit: `chore: expand Python quality scope`.
 
 ### Checkpoint 8: Centralize geospatial transformations
 
@@ -187,4 +188,4 @@ For every checkpoint:
 
 ## Immediate next checkpoint
 
-Continue Checkpoint 7 by making the configured Ruff and mypy scope package-wide. First measure Ruff findings in the currently excluded source files, then replace enumerated source-file scopes in reviewable slices if inherited debt requires it; full-package mypy is already clean. Keep optional pre-commit, stronger boundary typing, and any coverage-floor change separate.
+Continue Checkpoint 7 with optional pre-commit as its own reviewable slice now that the maintained CI commands are stable. Keep stronger external-boundary typing and any coverage-floor change separate; reassess the 70% floor against maintained multi-run evidence before changing it.

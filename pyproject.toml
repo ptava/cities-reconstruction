@@ -43,25 +43,7 @@ target-version = "py311"
 line-length = 120
 include = [
   "pyproject.toml",
-  "src/cities_reconstruction/adapters/*.py",
-  "src/cities_reconstruction/artifacts.py",
-  "src/cities_reconstruction/cli.py",
-  "src/cities_reconstruction/cli_options.py",
-  "src/cities_reconstruction/errors.py",
-  "src/cities_reconstruction/pipeline.py",
-  "src/cities_reconstruction/pipeline_execution.py",
-  "src/cities_reconstruction/stage_layout.py",
-  "src/cities_reconstruction/stage_runtime.py",
-  "src/cities_reconstruction/stage_contract.py",
-  "src/cities_reconstruction/stage_result.py",
-  "src/cities_reconstruction/stages/shapefiles/diagnostics.py",
-  "src/cities_reconstruction/stages/shapefiles/inputs.py",
-  "src/cities_reconstruction/stages/shapefiles/policy.py",
-  "src/cities_reconstruction/stages/shapefiles/publication.py",
-  "src/cities_reconstruction/stages/shapefiles/rendering.py",
-  "src/cities_reconstruction/stages/shapefiles/reporting.py",
-  "src/cities_reconstruction/stages/shapefiles/supplemental.py",
-  "src/cities_reconstruction/stages/shapefiles/transformation.py",
+  "src/cities_reconstruction/**/*.py",
   "tests/test_cli.py",
   "tests/test_pipeline.py",
   "tests/test_pipeline_execution.py",
@@ -84,24 +66,7 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.11"
 files = [
-  "src/cities_reconstruction/adapters/city4cfd.py",
-  "src/cities_reconstruction/artifacts.py",
-  "src/cities_reconstruction/cli.py",
-  "src/cities_reconstruction/errors.py",
-  "src/cities_reconstruction/pipeline.py",
-  "src/cities_reconstruction/pipeline_execution.py",
-  "src/cities_reconstruction/stage_layout.py",
-  "src/cities_reconstruction/stage_runtime.py",
-  "src/cities_reconstruction/stage_contract.py",
-  "src/cities_reconstruction/stage_result.py",
-  "src/cities_reconstruction/stages/shapefiles/diagnostics.py",
-  "src/cities_reconstruction/stages/shapefiles/inputs.py",
-  "src/cities_reconstruction/stages/shapefiles/policy.py",
-  "src/cities_reconstruction/stages/shapefiles/publication.py",
-  "src/cities_reconstruction/stages/shapefiles/rendering.py",
-  "src/cities_reconstruction/stages/shapefiles/reporting.py",
-  "src/cities_reconstruction/stages/shapefiles/supplemental.py",
-  "src/cities_reconstruction/stages/shapefiles/transformation.py",
+  "src/cities_reconstruction",
 ]
 check_untyped_defs = true
 disallow_untyped_defs = true
