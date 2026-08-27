@@ -7,7 +7,7 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Literal, NotRequired, TypedDict, TypeGuard, cast
 
 from cities_reconstruction.config import AppConfig, ConfigError
 
@@ -25,14 +25,51 @@ MODELLING_PROPERTIES = frozenset(
 )
 
 
+class UrbanPlanningPointGeometry(TypedDict):
+    """Normalized WGS84 Point geometry emitted by the planning loader."""
+
+    type: Literal["Point"]
+    coordinates: list[float]
+
+
+class UrbanPlanningProperties(TypedDict):
+    """Validated properties emitted for one urban-planning feature."""
+
+    id: str
+    kind: str
+    model: str
+    height_m: NotRequired[float]
+    crown_diameter_m: NotRequired[float]
+    trunk_diameter_m: NotRequired[float]
+    width_m: NotRequired[float]
+    depth_m: NotRequired[float]
+    rotation_deg: NotRequired[float]
+    urban_planning_input_id: str
+    source: str
+    source_crs: str
+    source_feature_index: int
+    source_properties: dict[str, object]
+    roi_zone: str
+    roi_distance_m: float
+    contributes_to_geometry: bool
+
+
+class UrbanPlanningFeature(TypedDict):
+    """Normalized GeoJSON Feature emitted by the planning loader."""
+
+    type: Literal["Feature"]
+    geometry: UrbanPlanningPointGeometry
+    properties: UrbanPlanningProperties
+
+
 @dataclass(frozen=True)
 class UrbanPlanningLoadResult:
-    accepted_features: tuple[dict[str, Any], ...]
-    outside_roi_features: tuple[dict[str, Any], ...]
+    accepted_features: tuple[UrbanPlanningFeature, ...]
+    outside_roi_features: tuple[UrbanPlanningFeature, ...]
     per_input: dict[str, dict[str, int]]
 
     @property
-    def outside_roi(self) -> tuple[dict[str, Any], ...]:
+    def outside_roi(self) -> tuple[UrbanPlanningFeature, ...]:
         """Return the normalized features rejected only by the ROI policy."""
 
         return self.outside_roi_features
@@ -41,8 +78,8 @@ class UrbanPlanningLoadResult:
 def load_inputs(config: AppConfig) -> UrbanPlanningLoadResult:
     """Load enabled planning GeoJSON inputs and normalize accepted Point features."""
 
-    accepted: list[dict[str, Any]] = []
-    outside_roi: list[dict[str, Any]] = []
+    accepted: list[UrbanPlanningFeature] = []
+    outside_roi: list[UrbanPlanningFeature] = []
     per_input: dict[str, dict[str, int]] = {}
     seen_ids: dict[str, tuple[str, int]] = {}
     model_names = {
@@ -55,8 +92,7 @@ def load_inputs(config: AppConfig) -> UrbanPlanningLoadResult:
         per_input[planning_input.name] = counts
         if not planning_input.enabled:
             continue
-        payload = _load_collection(planning_input.path, planning_input.name)
-        source_features = payload["features"]
+        source_features = _load_collection(planning_input.path, planning_input.name)
         counts["source_features"] = len(source_features)
         for feature_index, raw_feature in enumerate(source_features):
             normalized = _normalize_feature(
@@ -86,20 +122,21 @@ def load_inputs(config: AppConfig) -> UrbanPlanningLoadResult:
     return UrbanPlanningLoadResult(tuple(accepted), tuple(outside_roi), per_input)
 
 
-def _load_collection(path: Path, input_name: str) -> dict[str, Any]:
+def _load_collection(path: Path, input_name: str) -> list[object]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload: object = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ConfigError(f"cannot read urban-planning input '{input_name}' GeoJSON {path}: {error}") from error
-    if not isinstance(payload, dict) or payload.get("type") != "FeatureCollection":
+    if not _is_object_dict(payload) or payload.get("type") != "FeatureCollection":
         raise ConfigError(f"urban-planning input '{input_name}' must be a GeoJSON FeatureCollection")
-    if not isinstance(payload.get("features"), list):
+    features = payload.get("features")
+    if not _is_object_list(features):
         raise ConfigError(f"urban-planning input '{input_name}' FeatureCollection features must be an array")
-    return payload
+    return features
 
 
 def _normalize_feature(
-    raw_feature: Any,
+    raw_feature: object,
     *,
     input_name: str,
     source_path: Path,
@@ -107,12 +144,12 @@ def _normalize_feature(
     feature_index: int,
     config: AppConfig,
     model_names: dict[str, frozenset[str] | None],
-) -> dict[str, Any]:
+) -> UrbanPlanningFeature:
     base_context = f"urban-planning input '{input_name}' feature {feature_index}"
-    if not isinstance(raw_feature, dict) or raw_feature.get("type") != "Feature":
+    if not _is_object_dict(raw_feature) or raw_feature.get("type") != "Feature":
         raise ConfigError(f"{base_context} must be a GeoJSON Feature")
     raw_properties = raw_feature.get("properties")
-    if not isinstance(raw_properties, dict):
+    if not _is_object_dict(raw_properties):
         raise ConfigError(f"{base_context} properties must be an object")
     properties = _casefold_properties(raw_properties, base_context)
     raw_id = properties.get("id")
@@ -133,7 +170,7 @@ def _normalize_feature(
     lon, lat = _point_coordinates(raw_feature.get("geometry"), source_crs, context)
     roi_distance_m = _distance_m(config.region.center_lat, config.region.center_lon, lat, lon)
     roi_zone = _roi_zone(roi_distance_m, config)
-    public_properties: dict[str, Any] = {
+    public_properties: dict[str, object] = {
         "id": feature_id,
         "kind": kind,
         "model": model,
@@ -161,15 +198,15 @@ def _normalize_feature(
             "contributes_to_geometry": False,
         }
     )
-    return {
-        "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [lon, lat]},
-        "properties": public_properties,
-    }
+    return UrbanPlanningFeature(
+        type="Feature",
+        geometry=UrbanPlanningPointGeometry(type="Point", coordinates=[lon, lat]),
+        properties=cast(UrbanPlanningProperties, public_properties),
+    )
 
 
-def _casefold_properties(raw: dict[Any, Any], context: str) -> dict[str, Any]:
-    normalized: dict[str, Any] = {}
+def _casefold_properties(raw: dict[object, object], context: str) -> dict[str, object]:
+    normalized: dict[str, object] = {}
     for key, value in raw.items():
         if not isinstance(key, str):
             raise ConfigError(f"{context} property names must be strings")
@@ -180,14 +217,14 @@ def _casefold_properties(raw: dict[Any, Any], context: str) -> dict[str, Any]:
     return normalized
 
 
-def _required_text(properties: dict[str, Any], name: str, context: str) -> str:
+def _required_text(properties: dict[str, object], name: str, context: str) -> str:
     value = properties.get(name)
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{context} requires {name} as a non-empty string")
     return value.strip()
 
 
-def _validate_modelling_properties(properties: dict[str, Any], kind: str, context: str) -> None:
+def _validate_modelling_properties(properties: dict[str, object], kind: str, context: str) -> None:
     for name in properties:
         if name in MODELLING_PROPERTIES and name not in {"id", "kind", "model", *MODELLING_PROPERTIES_BY_KIND[kind]}:
             raise ConfigError(f"{context} property '{name}' is not allowed for kind '{kind}'")
@@ -195,7 +232,7 @@ def _validate_modelling_properties(properties: dict[str, Any], kind: str, contex
             raise ConfigError(f"{context} has unknown modelling property '{name}'")
 
 
-def _finite_number(value: Any, name: str, context: str, *, positive: bool) -> float:
+def _finite_number(value: object, name: str, context: str, *, positive: bool) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(float(value)):
         raise ConfigError(f"{context} {name} must be a finite number")
     number = float(value)
@@ -204,15 +241,16 @@ def _finite_number(value: Any, name: str, context: str, *, positive: bool) -> fl
     return number
 
 
-def _point_coordinates(geometry: Any, source_crs: str, context: str) -> tuple[float, float]:
-    if not isinstance(geometry, dict) or geometry.get("type") != "Point":
+def _point_coordinates(geometry: object, source_crs: str, context: str) -> tuple[float, float]:
+    if not _is_object_dict(geometry) or geometry.get("type") != "Point":
         raise ConfigError(f"{context} geometry must be a GeoJSON Point")
     coordinates = geometry.get("coordinates")
-    if not isinstance(coordinates, list) or len(coordinates) != 2:
+    if not _is_object_list(coordinates) or len(coordinates) != 2:
         raise ConfigError(f"{context} Point coordinates must contain exactly two values")
-    if any(isinstance(value, bool) or not isinstance(value, int | float) for value in coordinates):
+    first_value, second_value = coordinates
+    if not _is_number(first_value) or not _is_number(second_value):
         raise ConfigError(f"{context} Point coordinates must be finite numbers")
-    first, second = float(coordinates[0]), float(coordinates[1])
+    first, second = float(first_value), float(second_value)
     if not math.isfinite(first) or not math.isfinite(second):
         raise ConfigError(f"{context} Point coordinates must be finite numbers")
     if source_crs == "EPSG:3857":
@@ -238,17 +276,17 @@ def _model_names(path: Path | None, label: str) -> frozenset[str] | None:
     if path is None:
         return None
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload: object = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ConfigError(f"cannot read {label} model library {path}: {error}") from error
-    raw_models = payload.get("models") if isinstance(payload, dict) else None
-    if not isinstance(raw_models, list):
+    raw_models = payload.get("models") if _is_object_dict(payload) else None
+    if not _is_object_list(raw_models):
         raise ConfigError(f"{label} model library must contain a models array: {path}")
     if not raw_models:
         raise ConfigError(f"{label} model library must contain at least one model: {path}")
     names: set[str] = set()
     for index, model in enumerate(raw_models, start=1):
-        if not isinstance(model, dict):
+        if not _is_object_dict(model):
             raise ConfigError(f"{label} model library entry {index} must be an object: {path}")
         raw_name = model.get("name")
         if not isinstance(raw_name, str) or not raw_name.strip():
@@ -258,6 +296,24 @@ def _model_names(path: Path | None, label: str) -> frozenset[str] | None:
             raise ConfigError(f"{label} model library contains duplicate name '{name}': {path}")
         names.add(name)
     return frozenset(names)
+
+
+def _is_object_dict(value: object) -> TypeGuard[dict[object, object]]:
+    """Narrow a JSON object without propagating the decoder's implicit ``Any``."""
+
+    return isinstance(value, dict)
+
+
+def _is_object_list(value: object) -> TypeGuard[list[object]]:
+    """Narrow a JSON array without propagating the decoder's implicit ``Any``."""
+
+    return isinstance(value, list)
+
+
+def _is_number(value: object) -> TypeGuard[int | float]:
+    """Narrow JSON numbers while retaining the established Boolean rejection."""
+
+    return not isinstance(value, bool) and isinstance(value, int | float)
 
 
 def _roi_zone(distance_m: float, config: AppConfig) -> str:

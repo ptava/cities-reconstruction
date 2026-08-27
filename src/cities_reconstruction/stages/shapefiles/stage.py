@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from cities_reconstruction.stage_contract import (
 )
 from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
+from cities_reconstruction.urban_planning import UrbanPlanningFeature, UrbanPlanningLoadResult
 from cities_reconstruction.urban_planning import load_inputs as load_urban_planning_inputs
 
 from . import policy as shapefiles_policy
@@ -664,7 +666,7 @@ def _feature_source_label(
     overpass_source: str,
     config: AppConfig,
     loaded_supplements: dict[str, list[dict[str, Any]]],
-    urban_planning: Any,
+    urban_planning: UrbanPlanningLoadResult,
 ) -> str:
     labels = [overpass_source]
     for item in config.shapefiles.supplemental:
@@ -685,7 +687,7 @@ def _feature_source_label(
     return "; ".join(labels)
 
 
-def _write_geojson(path: Path, features: list[dict[str, Any]]) -> None:
+def _write_geojson(path: Path, features: Sequence[Mapping[str, object]]) -> None:
     collection = {
         "type": "FeatureCollection",
         "features": features,
@@ -776,7 +778,7 @@ def _gap_fill_feature_from_polygon(polygon: Polygon, index: int, config: AppConf
     }
 
 
-def _route_urban_planning_feature(feature: dict[str, Any]) -> dict[str, Any]:
+def _route_urban_planning_feature(feature: UrbanPlanningFeature) -> dict[str, Any]:
     """Add the established Stage 1 reference properties for a planning point."""
 
     routed: dict[str, Any] = {
