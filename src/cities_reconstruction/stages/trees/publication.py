@@ -51,7 +51,10 @@ class TreesPublicationInput:
     terrain_geometry_path: Path | None
 
 
-def placement_geojson(instances: list[TreeInstance]) -> dict[str, Any]:
+def placement_geojson(
+    instances: list[TreeInstance],
+    working_crs: str = "EPSG:25832",
+) -> dict[str, Any]:
     return {
         "type": "FeatureCollection",
         "features": [
@@ -74,7 +77,7 @@ def placement_geojson(instances: list[TreeInstance]) -> dict[str, Any]:
                     "trunk_height_m": round(instance.trunk_height_m, 3),
                     "roi_zone": instance.roi_zone,
                     "osm_id": instance.osm_id,
-                    "projected_crs": "EPSG:25832",
+                    "projected_crs": working_crs,
                     "model_source": instance.model_source,
                     "height_source": instance.height_source,
                     "crown_radius_source": instance.crown_radius_source,
@@ -171,7 +174,7 @@ def _manifest_payload(publication: TreesPublicationInput) -> dict[str, Any]:
     information = information_summary(publication.instances)
     return {
         "region": config.region.name,
-        "crs": config.region.crs,
+        "crs": config.working_crs,
         "source_tree_features": str(publication.tree_features_path),
         "placement_geojson": str(publication.placement_path),
         "species_library": str(publication.library_path),
@@ -222,7 +225,7 @@ def _trees_input_fingerprint(
     return lightweight_state_fingerprint(
         {
             "stage": "trees",
-            "crs": config.region.crs,
+            "crs": config.working_crs,
             "default_species": config.trees.default,
             "terrain_geometry_path": str(terrain_geometry_path) if terrain_geometry_path else None,
         },

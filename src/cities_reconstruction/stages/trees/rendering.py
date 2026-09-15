@@ -51,7 +51,7 @@ def render_preview(
   <p class="note">Species-tag models: <strong><span id="tagInfo"></span></strong>. Direct planning models: <strong><span id="planningInfo"></span></strong>. Fallback species models: <strong><span id="defaultInfo"></span></strong>.</p>
   <h2>Named Trees</h2>
   <div class="species-list" id="speciesList"></div>
-  <p class="note">Drag to rotate the 3D tree preview. Use the mouse wheel or zoom buttons to zoom in and out. The placement GeoJSON stays in projected EPSG:25832 coordinates, while the STL surfaces are translated to the same local origin used by the City4CFD handoff so they line up with city-models output.</p>
+  <p class="note">Drag to rotate the 3D tree preview. Use the mouse wheel or zoom buttons to zoom in and out. The placement GeoJSON stays in projected {escape(config.working_crs)} coordinates, while the STL surfaces are translated to the same local origin used by the City4CFD handoff so they line up with city-models output.</p>
   <script>
     const scene = {scene_json};
     const view = {{ canvas: document.getElementById("treeScene"), yaw: -0.7, pitch: 0.82, zoom: 1.0, dragging: false, last: null }};

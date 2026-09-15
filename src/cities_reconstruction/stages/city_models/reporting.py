@@ -39,7 +39,7 @@ def render_report(
 ## Region
 
 - Name: {config.region.name}
-- CRS: {config.region.crs}
+- CRS: {config.working_crs}
 - LoD target: 2.2
 - Alignment status: {diagnostics.get("alignment_status", "unknown")}
 - Footprint overlap status: {footprint_diagnostics["overlap_status"]}
@@ -66,7 +66,7 @@ def render_report(
 
 ## Stage 1 Surface Layers
 
-The stage-1 surface categories are projected from EPSG:4326 into `{config.region.crs}` and carried into the City4CFD handoff as named SurfaceLayer polygon imports. Empty categories are ignored. With separate output enabled, City4CFD writes each imprinted category as its own `{config.city_models.output_file_name}_<layer_name>.{config.city_models.output_format}` mesh.
+The stage-1 surface categories are projected from EPSG:4326 into `{config.working_crs}` and carried into the City4CFD handoff as named SurfaceLayer polygon imports. Empty categories are ignored. With separate output enabled, City4CFD writes each imprinted category as its own `{config.city_models.output_file_name}_<layer_name>.{config.city_models.output_format}` mesh.
 
 {render_surface_layer_report(stage1_surface_layers, surface_mesh_paths)}
 

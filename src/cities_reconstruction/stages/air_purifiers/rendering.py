@@ -6,6 +6,7 @@ import json
 import math
 from html import escape
 
+from cities_reconstruction.geometry.crs import EPSG_25832
 from cities_reconstruction.geometry.stl_regions import REGION_NAMES, RegionMesh
 from cities_reconstruction.stages.air_purifiers.models import AirPurifierInstance
 
@@ -15,6 +16,7 @@ def render_preview(
     instance_meshes: dict[str, RegionMesh],
     origin_x: float,
     origin_y: float,
+    working_crs: str = EPSG_25832,
 ) -> str:
     points = [
         point
@@ -82,7 +84,7 @@ def render_preview(
 <html><head><meta charset="utf-8"><title>Air-purifier models preview</title>
 <style>body{{font-family:system-ui;margin:1.5rem;color:#243447}}canvas{{border:1px solid #b9c1c9;width:min(100%,1000px);height:620px;background:#f8fafc}}label{{margin-right:1rem}}.swatch{{display:inline-block;width:.9rem;height:.9rem}}.controls{{display:flex;flex-wrap:wrap;gap:.35rem 1rem}}</style></head>
 <body><h1>Air-purifier models preview</h1>
-<p>Offline local-coordinate preview. Local origin EPSG:25832: easting {origin_x:.3f}, northing {origin_y:.3f}.</p>
+<p>Offline local-coordinate preview. Local origin {escape(working_crs)}: easting {origin_x:.3f}, northing {origin_y:.3f}.</p>
 <p><span class="swatch" style="background:#2f80ed"></span> inlet &nbsp; <span class="swatch" style="background:#eb5757"></span> outlet &nbsp; <span class="swatch" style="background:#b9c1c9"></span> tower</p>
 <div><button id="orbit">Orbit</button> <button id="zoomIn">Zoom +</button> <button id="zoomOut">Zoom -</button> <button id="reset">Reset</button></div>
 <h2>Models</h2><div class="controls">{model_controls}</div><h2>Instances</h2><div class="controls">{instance_controls}</div>

@@ -9,7 +9,6 @@ checks that should be reviewed before reconstruction.
 from __future__ import annotations
 
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +21,10 @@ from cities_reconstruction.artifacts import (
     stage_output_lock,
 )
 from cities_reconstruction.config import AppConfig, ConfigError
+from cities_reconstruction.geometry.crs import EPSG_25832, project_lonlat, validate_working_crs
+from cities_reconstruction.geometry.crs import lonlat_to_epsg25832 as _lonlat_to_epsg25832  # noqa: F401
+from cities_reconstruction.geometry.crs_inputs import projection_sidecar, raster_crs
+from cities_reconstruction.geometry.spatial_plan import verify_spatial_plan
 from cities_reconstruction.stage_contract import (
     ArtifactKind,
     ArtifactReference,
@@ -35,6 +38,7 @@ from cities_reconstruction.stage_contract import (
 from cities_reconstruction.stage_layout import StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
 
+from .cloud_inputs import read_projected_ply
 from .diagnostics import build_alignment_diagnostics
 from .geometry import (
     BUILDING_HEIGHT_THRESHOLD_M,
@@ -53,8 +57,6 @@ from .inputs import (
 from .publication import PointCloudPublicationInput, publish_point_cloud_manifest
 from .rendering import render_preview_html
 from .reporting import render_report
-
-SUPPORTED_PROJECTED_CRS = "EPSG:25832"
 
 
 @dataclass(frozen=True)
@@ -117,10 +119,15 @@ STAGE_ID = StageId.POINT_CLOUD
 
 def plan(config: AppConfig) -> StageResult:
     output = stage_output_directory(config.output.root_directory, STAGE_ID)
-    if config.inputs.point_cloud_path is not None:
+    if config.inputs.ground_point_cloud_path is not None:
         source_action = (
-            f"Reject single point-cloud input {config.inputs.point_cloud_path} until the config supports "
-            "explicit ground/building point-cloud paths."
+            f"Prepare supplied ground/building ASCII PLY clouds from {config.inputs.point_cloud_source_crs} "
+            f"to {config.working_crs}; preserve metre heights and user classification."
+        )
+    elif config.inputs.point_cloud_path is not None:
+        source_action = (
+            f"Reject single point-cloud input {config.inputs.point_cloud_path}; configure "
+            "ground_point_cloud_path, building_point_cloud_path and point_cloud_source_crs instead."
         )
     else:
         source_action = (
@@ -136,8 +143,8 @@ def plan(config: AppConfig) -> StageResult:
             "Read default building footprints from "
             f"{stage_output_directory(config.output.root_directory, StageId.SHAPEFILES) / 'buildings.geojson'}; "
             "an execution-time CLI override must be explicit.",
-            "Project footprints to the configured metric CRS and split DSM cells into building points.",
-            "Optionally combine `inputs.tree_canopy_overlay_path` with stage-1 tree tags to identify DSM tree points.",
+            "Project footprints to the working CRS; classify paired DSM samples or retain supplied cloud classes.",
+            "For raster inputs only, optionally combine `inputs.tree_canopy_overlay_path` with stage-1 tree tags to identify DSM tree points.",
             "Write `ground_points.ply`, `building_points.ply`, optional `tree_points.ply`, "
             "`unclassified_points.ply`, an alignment report, and a graphical QA preview.",
         ),
@@ -158,6 +165,7 @@ def run(
             output_dir,
             legacy_names=("city4cfd_point_cloud_manifest.json",),
         )
+        verify_spatial_plan(config)
         _validate_inputs(config)
         return _run_locked(config, building_footprints_path=building_footprints_path)
 
@@ -179,24 +187,50 @@ def _run_locked(
     projected_footprints = [polygon for feature in projected_features for polygon in _project_feature_polygon(feature)]
     bbox = _region_bbox_projected(config)
 
-    tree_mask = _load_tree_canopy_mask(config)
+    supplied = config.inputs.ground_point_cloud_path is not None
+    tree_mask = _load_tree_canopy_mask(config) if not supplied else None
     tree_features_path = _select_optional_tree_features_path(config) if tree_mask is not None else None
-    tree_tag_points = _load_projected_tree_tag_points(tree_features_path)
-    (
-        ground_points,
-        building_points,
-        tree_points,
-        unclassified_points,
-        alignment_candidate_points,
-        raster_summary,
-    ) = classify_raster_points(
-        dtm_directory=config.inputs.dtm_directory,
-        dsm_directory=config.inputs.dsm_directory,
-        bbox=bbox,
-        building_polygons=projected_footprints,
-        tree_mask=tree_mask,
-        tree_tag_points=tree_tag_points,
-    )
+    tree_tag_points = _load_projected_tree_tag_points(tree_features_path, config.working_crs)
+    source_evidence: dict[str, Any] = {"vertical": "heights assumed compatible metres; no vertical datum conversion"}
+    if supplied:
+        assert config.inputs.ground_point_cloud_path is not None
+        assert config.inputs.building_point_cloud_path is not None
+        assert config.inputs.point_cloud_source_crs is not None
+        ground_points = read_projected_ply(
+            config.inputs.ground_point_cloud_path, config.inputs.point_cloud_source_crs, config.working_crs, bbox,
+        )
+        building_points = read_projected_ply(
+            config.inputs.building_point_cloud_path, config.inputs.point_cloud_source_crs, config.working_crs, bbox,
+        )
+        if not ground_points:
+            raise ConfigError("supplied ground cloud has no points in the ROI; check absolute coordinates and source CRS")
+        tree_points: list[tuple[float, float, float]] = []
+        unclassified_points: list[tuple[float, float, float]] = []
+        alignment_candidate_points = building_points
+        raster_summary: dict[str, Any] = {}
+        source_evidence["point_cloud_source"] = config.inputs.point_cloud_source_crs
+    else:
+        for label, directory, declaration in (
+            ("dtm", config.inputs.dtm_directory, config.inputs.dtm_source_crs),
+            ("dsm", config.inputs.dsm_directory, config.inputs.dsm_source_crs),
+        ):
+            assert directory is not None
+            evidence = raster_crs(directory, declaration)
+            source_evidence[label] = {
+                "source_crs": evidence.crs,
+                "sidecars": [str(path) for path in evidence.sidecars],
+            }
+        (
+            ground_points, building_points, tree_points, unclassified_points,
+            alignment_candidate_points, raster_summary,
+        ) = classify_raster_points(
+            dtm_directory=config.inputs.dtm_directory,
+            dsm_directory=config.inputs.dsm_directory,
+            bbox=bbox,
+            building_polygons=projected_footprints,
+            tree_mask=tree_mask,
+            tree_tag_points=tree_tag_points,
+        )
     diagnostics = build_alignment_diagnostics(
         config=config,
         footprint_path=footprint_path,
@@ -209,14 +243,20 @@ def _run_locked(
         raster_summary=raster_summary,
         tree_mask=tree_mask,
         tree_tag_points=tree_tag_points,
-        same_metric_output_crs=config.region.crs.upper() == SUPPORTED_PROJECTED_CRS,
+        same_metric_output_crs=True,
+        supplied_clouds=supplied,
+        source_evidence=source_evidence,
     )
 
     ground_path = output_dir / "ground_points.ply"
     building_path = output_dir / "building_points.ply"
     tree_path = output_dir / "tree_points.ply" if tree_mask is not None else None
     unclassified_path = output_dir / "unclassified_points.ply"
-    projected_footprints_path = output_dir / "building_footprints_epsg25832.geojson"
+    projected_footprints_path = output_dir / (
+        "building_footprints_epsg25832.geojson"
+        if config.working_crs == EPSG_25832
+        else "building_footprints_projected.geojson"
+    )
     diagnostics_path = output_dir / "alignment_diagnostics.json"
     preview_path = output_dir / "point_cloud_alignment_preview.html"
     report_path = output_dir / "point_cloud_report.md"
@@ -228,7 +268,7 @@ def _run_locked(
         _write_ply(tree_path, tree_points)
     else:
         (output_dir / "tree_points.ply").unlink(missing_ok=True)
-    _write_geojson(projected_footprints_path, projected_features, config.region.crs)
+    _write_geojson(projected_footprints_path, projected_features, config.working_crs)
     atomic_write_json(diagnostics_path, diagnostics)
     fingerprint = _point_cloud_input_fingerprint(config, footprint_path, tree_features_path)
     atomic_write_text(
@@ -281,8 +321,10 @@ def _run_locked(
             unclassified_point_count=len(unclassified_points),
             alignment_status=str(diagnostics["alignment_status"]),
             source_building_footprints=footprint_path,
-            crs=config.region.crs,
+            crs=config.working_crs,
             tree_filter=diagnostics["tree_filter"],
+            input_mode=diagnostics["input_mode"],
+            source_evidence=source_evidence,
         )
     )
 
@@ -303,15 +345,17 @@ def _run_locked(
 
 
 def _validate_inputs(config: AppConfig) -> None:
-    if config.region.crs.upper() != SUPPORTED_PROJECTED_CRS:
-        raise ConfigError(
-            f"point-cloud generation currently supports {SUPPORTED_PROJECTED_CRS}; got {config.region.crs}"
-        )
+    validate_working_crs(config.working_crs)
     if config.inputs.point_cloud_path is not None:
         raise ConfigError(
             "City4CFD requires separate ground and building point clouds. "
-            "The current config has only inputs.point_cloud_path, so use DTM/DSM inputs for this stage."
+            "Use ground_point_cloud_path and building_point_cloud_path with point_cloud_source_crs, or DTM/DSM inputs."
         )
+    if config.inputs.ground_point_cloud_path is not None:
+        for path in (config.inputs.ground_point_cloud_path, config.inputs.building_point_cloud_path):
+            if path is None or not path.is_file():
+                raise ConfigError(f"supplied point cloud does not exist: {path}")
+        return
     if config.inputs.dtm_directory is None or config.inputs.dsm_directory is None:
         raise ConfigError("point-cloud generation requires inputs.dtm_directory and inputs.dsm_directory")
     if not config.inputs.dtm_directory.exists():
@@ -375,7 +419,7 @@ def _project_feature(feature: dict[str, Any], config: AppConfig) -> dict[str, An
     projected["geometry"] = projected_geometry
     properties = dict(feature.get("properties", {}))
     properties["source_crs"] = "EPSG:4326"
-    properties["projected_crs"] = config.region.crs
+    properties["projected_crs"] = config.working_crs
     projected["properties"] = properties
     return projected
 
@@ -416,11 +460,11 @@ def _coordinate_ring(coordinates: Any) -> Ring:
 
 
 def _project_ring(ring: list[list[float]], config: AppConfig) -> list[tuple[float, float]]:
-    return [_lonlat_to_epsg25832(float(point[0]), float(point[1])) for point in ring]
+    return [project_lonlat(float(point[0]), float(point[1]), config.working_crs) for point in ring]
 
 
 def _region_bbox_projected(config: AppConfig) -> tuple[float, float, float, float]:
-    center_x, center_y = _lonlat_to_epsg25832(config.region.center_lon, config.region.center_lat)
+    center_x, center_y = project_lonlat(config.region.center_lon, config.region.center_lat, config.working_crs)
     radius = config.region.outer_diameter_m / 2.0
     return center_x - radius, center_y - radius, center_x + radius, center_y + radius
 
@@ -440,7 +484,10 @@ def _load_tree_canopy_mask(config: AppConfig) -> dict[str, Any] | None:
     }
 
 
-def _load_projected_tree_tag_points(path: Path | None) -> list[tuple[float, float]]:
+def _load_projected_tree_tag_points(
+    path: Path | None,
+    working_crs: str = EPSG_25832,
+) -> list[tuple[float, float]]:
     if path is None:
         return []
     with path.open("r", encoding="utf-8") as handle:
@@ -463,7 +510,7 @@ def _load_projected_tree_tag_points(path: Path | None) -> list[tuple[float, floa
         ):
             coordinates = geometry.get("coordinates", [])
             if isinstance(coordinates, list) and len(coordinates) >= 2:
-                points.append(_lonlat_to_epsg25832(float(coordinates[0]), float(coordinates[1])))
+                points.append(project_lonlat(float(coordinates[0]), float(coordinates[1]), working_crs))
     return points
 
 
@@ -475,7 +522,15 @@ def _point_cloud_input_fingerprint(
     paths = [config.path, footprint_path]
     for directory in (config.inputs.dtm_directory, config.inputs.dsm_directory):
         if directory is not None:
-            paths.extend(path for path in directory.rglob("*") if path.is_file() and path.suffix.lower() == ".asc")
+            for path in directory.rglob("*"):
+                if path.is_file() and path.suffix.lower() == ".asc":
+                    paths.append(path)
+                    sidecar = projection_sidecar(path)
+                    if sidecar is not None:
+                        paths.append(sidecar)
+    for cloud_path in (config.inputs.ground_point_cloud_path, config.inputs.building_point_cloud_path):
+        if cloud_path is not None:
+            paths.append(cloud_path)
     if config.inputs.tree_canopy_overlay_path is not None:
         paths.append(config.inputs.tree_canopy_overlay_path)
         if tree_features_path is not None:
@@ -483,7 +538,10 @@ def _point_cloud_input_fingerprint(
     return lightweight_state_fingerprint(
         {
             "stage": "point-cloud",
-            "crs": config.region.crs,
+            "crs": config.working_crs,
+            "dtm_source_crs": config.inputs.dtm_source_crs,
+            "dsm_source_crs": config.inputs.dsm_source_crs,
+            "point_cloud_source_crs": config.inputs.point_cloud_source_crs,
             "center": [config.region.center_lon, config.region.center_lat],
             "outer_diameter_m": config.region.outer_diameter_m,
             "building_height_threshold_m": BUILDING_HEIGHT_THRESHOLD_M,
@@ -521,49 +579,3 @@ def _write_geojson(path: Path, features: list[dict[str, Any]], crs: str) -> None
             sort_keys=True,
         ),
     )
-
-
-def _lonlat_to_epsg25832(lon: float, lat: float) -> tuple[float, float]:
-    """Project WGS84 lon/lat to ETRS89 / UTM zone 32N.
-
-    The project CRS default is EPSG:25832. For the Florence-scale QA outputs,
-    ETRS89 and WGS84 differences are below the precision needed here.
-    """
-
-    semi_major = 6378137.0
-    flattening = 1.0 / 298.257223563
-    eccentricity_sq = flattening * (2.0 - flattening)
-    second_eccentricity_sq = eccentricity_sq / (1.0 - eccentricity_sq)
-    scale = 0.9996
-    central_meridian = math.radians(9.0)
-    lat_rad = math.radians(lat)
-    lon_rad = math.radians(lon)
-
-    n = semi_major / math.sqrt(1.0 - eccentricity_sq * math.sin(lat_rad) ** 2)
-    t = math.tan(lat_rad) ** 2
-    c = second_eccentricity_sq * math.cos(lat_rad) ** 2
-    a = math.cos(lat_rad) * (lon_rad - central_meridian)
-    m = semi_major * (
-        (1 - eccentricity_sq / 4 - 3 * eccentricity_sq**2 / 64 - 5 * eccentricity_sq**3 / 256) * lat_rad
-        - (3 * eccentricity_sq / 8 + 3 * eccentricity_sq**2 / 32 + 45 * eccentricity_sq**3 / 1024)
-        * math.sin(2 * lat_rad)
-        + (15 * eccentricity_sq**2 / 256 + 45 * eccentricity_sq**3 / 1024) * math.sin(4 * lat_rad)
-        - (35 * eccentricity_sq**3 / 3072) * math.sin(6 * lat_rad)
-    )
-    easting = (
-        scale
-        * n
-        * (a + (1 - t + c) * a**3 / 6 + (5 - 18 * t + t**2 + 72 * c - 58 * second_eccentricity_sq) * a**5 / 120)
-        + 500000.0
-    )
-    northing = scale * (
-        m
-        + n
-        * math.tan(lat_rad)
-        * (
-            a**2 / 2
-            + (5 - t + 9 * c + 4 * c**2) * a**4 / 24
-            + (61 - 58 * t + t**2 + 600 * c - 330 * second_eccentricity_sq) * a**6 / 720
-        )
-    )
-    return easting, northing

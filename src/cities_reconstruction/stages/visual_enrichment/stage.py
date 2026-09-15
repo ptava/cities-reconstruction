@@ -40,6 +40,12 @@ from shapely.validation import make_valid
 
 from cities_reconstruction.artifacts import lightweight_state_fingerprint
 from cities_reconstruction.config import AppConfig
+from cities_reconstruction.geometry.crs import (
+    EARTH_RADIUS_M,
+    lonlat_bbox_from_radius,
+    lonlat_to_local_xy,
+)
+from cities_reconstruction.geometry.spatial_plan import verify_spatial_plan
 from cities_reconstruction.stage_contract import (
     ArtifactKind,
     ArtifactReference,
@@ -54,7 +60,6 @@ from cities_reconstruction.stage_contract import (
 from cities_reconstruction.stage_layout import STAGE_LAYOUT_BY_ID, StageId, stage_output_directory
 from cities_reconstruction.stage_result import StageResult
 
-EARTH_RADIUS_M = 6_371_000.0
 DEFAULT_SEGMENTATION_INPUT_NAME = "segmentation_input.geojson"
 DEFAULT_SAT2LOD2_POLYGONS_NAME = "sat2lod2_building_polygons.geojson"
 
@@ -172,6 +177,7 @@ def run(
 ) -> VisualEnrichmentStageOutput:
     """Execute visual enrichment using reviewable external segmentation polygons."""
 
+    verify_spatial_plan(config)
     output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     output_dir.mkdir(parents=True, exist_ok=True)
     invalidate_stage_manifests(output_dir)
@@ -361,7 +367,7 @@ def _visual_enrichment_input_fingerprint(
     return lightweight_state_fingerprint(
         {
             "stage": "visual-enrichment",
-            "crs": config.region.crs,
+            "crs": config.working_crs,
             "stage1_features": str(source_features_path),
             "segmentation_source": str(segmentation_path) if segmentation_path is not None else None,
             "sat2lod2_source": str(sat2lod2_path) if sat2lod2_path is not None else None,
@@ -665,7 +671,7 @@ def _sat2lod2_handoff_manifest(
         "bbox_lon_lat": imagery_diagnostics.get("bbox_lon_lat"),
         "region": {
             "name": config.region.name,
-            "crs": config.region.crs,
+            "crs": config.working_crs,
             "center_lat": config.region.center_lat,
             "center_lon": config.region.center_lon,
             "inner_diameter_m": config.region.inner_diameter_m,
@@ -772,9 +778,12 @@ def _project_polygon(polygon: Polygon, config: AppConfig) -> Polygon:
 
 def _project_coordinate_m(coordinate: list[float], config: AppConfig) -> tuple[float, float]:
     lon, lat = coordinate
-    x_m = math.radians(lon - config.region.center_lon) * EARTH_RADIUS_M * math.cos(math.radians(config.region.center_lat))
-    y_m = math.radians(lat - config.region.center_lat) * EARTH_RADIUS_M
-    return x_m, y_m
+    return lonlat_to_local_xy(
+        lon,
+        lat,
+        center_lon=config.region.center_lon,
+        center_lat=config.region.center_lat,
+    )
 
 
 def _distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
@@ -791,13 +800,16 @@ def _distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float
 
 def _roi_bbox_lon_lat(config: AppConfig) -> dict[str, float]:
     radius_m = config.region.outer_diameter_m / 2.0
-    lat_delta = math.degrees(radius_m / EARTH_RADIUS_M)
-    lon_delta = math.degrees(radius_m / (EARTH_RADIUS_M * math.cos(math.radians(config.region.center_lat))))
+    min_lon, min_lat, max_lon, max_lat = lonlat_bbox_from_radius(
+        center_lon=config.region.center_lon,
+        center_lat=config.region.center_lat,
+        radius_m=radius_m,
+    )
     return {
-        "min_lon": config.region.center_lon - lon_delta,
-        "min_lat": config.region.center_lat - lat_delta,
-        "max_lon": config.region.center_lon + lon_delta,
-        "max_lat": config.region.center_lat + lat_delta,
+        "min_lon": min_lon,
+        "min_lat": min_lat,
+        "max_lon": max_lon,
+        "max_lat": max_lat,
     }
 
 
@@ -828,7 +840,7 @@ def _build_diagnostics(
     return {
         "region": {
             "name": config.region.name,
-            "crs": config.region.crs,
+            "crs": config.working_crs,
             "inner_diameter_m": config.region.inner_diameter_m,
             "outer_diameter_m": config.region.outer_diameter_m,
         },
@@ -930,7 +942,7 @@ def _render_report(
 ## Region
 
 - Name: {config.region.name}
-- CRS: {config.region.crs}
+- CRS: {config.working_crs}
 {inner_diameter_line}
 - Outer diameter: {config.region.outer_diameter_m:g} m
 

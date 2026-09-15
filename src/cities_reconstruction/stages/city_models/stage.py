@@ -24,6 +24,8 @@ from cities_reconstruction.artifacts import (
     stage_output_lock,
 )
 from cities_reconstruction.config import AppConfig, ConfigError
+from cities_reconstruction.geometry.crs import crs_equal, project_lonlat, validate_working_crs
+from cities_reconstruction.geometry.spatial_plan import verify_spatial_plan
 from cities_reconstruction.stage_contract import (
     ArtifactKind,
     ArtifactReference,
@@ -42,7 +44,7 @@ from .diagnostics import build_footprint_diagnostics
 from .geometry import (
     building_preview_triangles,
     clip_surface_layer_features,
-    lonlat_to_epsg25832,
+    lonlat_to_epsg25832,  # noqa: F401
     project_surface_layer_feature,
     terrain_preview_triangles,
     validate_successful_city4cfd_geometry,
@@ -138,6 +140,7 @@ def run(
 ) -> CityModelsStageOutput:
     """Prepare City4CFD inputs, run City4CFD when available, and write QA surfaces."""
 
+    verify_spatial_plan(config)
     output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     with stage_output_lock(output_dir, STAGE_ID.value):
         invalidate_stage_manifests(
@@ -158,6 +161,13 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
         point_manifest_path,
         expected_stage=StageId.POINT_CLOUD.value,
     )
+    point_cloud_source_crs = point_manifest.details.get("crs")
+    if not isinstance(point_cloud_source_crs, str) or not crs_equal(point_cloud_source_crs, config.working_crs):
+        declared = point_cloud_source_crs if isinstance(point_cloud_source_crs, str) else "missing"
+        raise ConfigError(
+            f"point-cloud manifest CRS {declared!r} does not match configured working CRS "
+            f"{config.working_crs!r}; rerun the point-cloud stage for the current configuration"
+        )
     diagnostics_path = require_manifest_artifact(
         point_manifest,
         name="alignment-diagnostics",
@@ -190,7 +200,7 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
         "building_footprints": str(footprint_path),
         "ground_point_cloud": str(ground_point_cloud_path),
         "building_point_cloud": str(building_point_cloud_path),
-        "crs": point_manifest.details.get("crs", config.region.crs),
+        "crs": point_cloud_source_crs,
     }
     footprints = read_feature_collection(footprint_path)
     ground_elevation_index = point_cloud_cell_stats(ground_point_cloud_path, prefer="min")
@@ -388,7 +398,8 @@ def _run_locked(config: AppConfig, executor: City4CFDExecutor) -> CityModelsStag
             alignment_status=alignment_status,
             footprint_overlap_status=str(footprint_diagnostics["overlap_status"]),
             region=config.region.name,
-            crs=config.region.crs,
+            crs=config.working_crs,
+            local_origin=config.coordinate_plan.local_origin,
             point_cloud_manifest_path=point_manifest_path,
             surface_layers=stage1_surface_layers,
             execution=execution,
@@ -421,11 +432,11 @@ def _build_city4cfd_config(
     output_dir: Path,
     stage1_surface_layers: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    center_x, center_y = lonlat_to_epsg25832(config.region.center_lon, config.region.center_lat)
+    center_x, center_y = project_lonlat(config.region.center_lon, config.region.center_lat, config.working_crs)
     city_models = config.city_models
     return {
         "name": config.region.name,
-        "crs": config.region.crs,
+        "crs": config.working_crs,
         "point_clouds": {
             "ground": _relative_to_workdir(Path(str(city4cfd_inputs["ground_point_cloud"])), output_dir),
             "buildings": _relative_to_workdir(Path(str(city4cfd_inputs["building_point_cloud"])), output_dir),
@@ -530,7 +541,7 @@ def _prepare_stage1_surface_layers(
                 f"review coordinates in {category_path}"
             )
         layer_path = surface_layers_dir / f"{category}.geojson"
-        _write_geojson(layer_path, features, config.region.crs)
+        _write_geojson(layer_path, features, config.working_crs)
         surface_layers.append(
             {
                 "category": category,
@@ -551,11 +562,10 @@ def _project_surface_layer_feature(
 ) -> dict[str, Any]:
     """Project a stage-1 EPSG:4326 polygon into the City4CFD metric CRS."""
 
-    if config.region.crs != "EPSG:25832":
-        raise ConfigError("city-model surface-layer projection currently supports EPSG:25832")
+    validate_working_crs(config.working_crs)
     return project_surface_layer_feature(
         feature,
-        target_crs=config.region.crs,
+        target_crs=config.working_crs,
         source_path=source_path,
     )
 
@@ -564,7 +574,7 @@ def _clip_surface_layer_features(
     features: list[dict[str, Any]],
     config: AppConfig,
 ) -> list[dict[str, Any]]:
-    center_xy = lonlat_to_epsg25832(config.region.center_lon, config.region.center_lat)
+    center_xy = project_lonlat(config.region.center_lon, config.region.center_lat, config.working_crs)
     return clip_surface_layer_features(
         features,
         center_xy=center_xy,
@@ -678,7 +688,7 @@ def _city_models_input_fingerprint(
     return lightweight_state_fingerprint(
         {
             "stage": "city-models",
-            "crs": config.region.crs,
+            "crs": config.working_crs,
             "city_models": asdict(config.city_models),
             "adapter_selection": {
                 "status": execution.status,
@@ -726,9 +736,8 @@ def _write_terrain_preview_stl(
 
 
 def _region_bbox_projected(config: AppConfig) -> tuple[float, float, float, float]:
-    if config.region.crs != "EPSG:25832":
-        raise ConfigError("city-model preview terrain currently supports EPSG:25832 projected output")
-    center_x, center_y = lonlat_to_epsg25832(config.region.center_lon, config.region.center_lat)
+    validate_working_crs(config.working_crs)
+    center_x, center_y = project_lonlat(config.region.center_lon, config.region.center_lat, config.working_crs)
     radius = config.region.outer_diameter_m / 2.0
     return center_x - radius, center_y - radius, center_x + radius, center_y + radius
 

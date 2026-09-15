@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from cities_reconstruction.stage_contract import (
@@ -39,6 +39,8 @@ class PointCloudPublicationInput:
     source_building_footprints: Path
     crs: str
     tree_filter: Mapping[str, JsonValue]
+    input_mode: str = "rasters"
+    source_evidence: Mapping[str, JsonValue] = field(default_factory=dict)
 
 
 def publish_point_cloud_manifest(publication: PointCloudPublicationInput) -> StageManifest:
@@ -97,5 +99,7 @@ def publish_point_cloud_manifest(publication: PointCloudPublicationInput) -> Sta
             "source_building_footprints": str(publication.source_building_footprints),
             "crs": publication.crs,
             "tree_filter": dict(publication.tree_filter),
+            "input_mode": publication.input_mode,
+            "source_evidence": dict(publication.source_evidence),
         },
     )

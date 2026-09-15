@@ -9,6 +9,7 @@ from typing import Any
 from shapely.geometry import MultiPoint, Point, shape
 
 from cities_reconstruction.config import AppConfig, ConfigError
+from cities_reconstruction.geometry.crs import lonlat_to_epsg25832, project_lonlat  # noqa: F401
 from cities_reconstruction.stages.trees.inputs import (
     TreeSpeciesModel,
 )
@@ -89,7 +90,7 @@ def build_tree_instances(
             model = fallback_model
             model_source = f"default:{default_species}:species_category_mapping"
             species_name = default_species
-        x, y = lonlat_to_epsg25832(float(point.x), float(point.y))
+        x, y = project_lonlat(float(point.x), float(point.y), config.working_crs)
         terrain_z = 0.0
         if direct_model is not None:
             def fallback_height(
@@ -406,42 +407,6 @@ def _quad_triangles(
     d: Point3,
 ) -> list[Triangle]:
     return [(label, a, b, c), (label, a, c, d)]
-
-
-def lonlat_to_epsg25832(lon: float, lat: float) -> tuple[float, float]:
-    semi_major = 6378137.0
-    flattening = 1 / 298.257223563
-    eccentricity_sq = flattening * (2 - flattening)
-    lat_rad = math.radians(lat)
-    lon_rad = math.radians(lon)
-    lon0 = math.radians(9.0)
-    k0 = 0.9996
-    false_easting = 500000.0
-    n = semi_major / math.sqrt(1 - eccentricity_sq * math.sin(lat_rad) ** 2)
-    t = math.tan(lat_rad) ** 2
-    c = (eccentricity_sq / (1 - eccentricity_sq)) * math.cos(lat_rad) ** 2
-    a = (lon_rad - lon0) * math.cos(lat_rad)
-    m = semi_major * (
-        (1 - eccentricity_sq / 4 - 3 * eccentricity_sq**2 / 64 - 5 * eccentricity_sq**3 / 256) * lat_rad
-        - (3 * eccentricity_sq / 8 + 3 * eccentricity_sq**2 / 32 + 45 * eccentricity_sq**3 / 1024)
-        * math.sin(2 * lat_rad)
-        + (15 * eccentricity_sq**2 / 256 + 45 * eccentricity_sq**3 / 1024) * math.sin(4 * lat_rad)
-        - (35 * eccentricity_sq**3 / 3072) * math.sin(6 * lat_rad)
-    )
-    easting = false_easting + k0 * n * (
-        a + (1 - t + c) * a**3 / 6 + (5 - 18 * t + t**2 + 72 * c - 58 * eccentricity_sq) * a**5 / 120
-    )
-    northing = k0 * (
-        m
-        + n
-        * math.tan(lat_rad)
-        * (
-            a**2 / 2
-            + (5 - t + 9 * c + 4 * c**2) * a**4 / 24
-            + (61 - 58 * t + t**2 + 600 * c - 330 * eccentricity_sq) * a**6 / 720
-        )
-    )
-    return easting, northing
 
 
 def translate_triangles(triangles: list[Triangle], dx: float, dy: float, dz: float) -> list[Triangle]:

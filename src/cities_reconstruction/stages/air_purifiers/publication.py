@@ -95,7 +95,7 @@ def publish_air_purifiers_manifest(publication: AirPurifiersPublicationInput) ->
                 ),
             },
             "local_origin": {
-                "crs": "EPSG:25832",
+                "crs": publication.config.working_crs,
                 "easting": publication.origin_x,
                 "northing": publication.origin_y,
             },
@@ -117,11 +117,14 @@ def publish_air_purifiers_manifest(publication: AirPurifiersPublicationInput) ->
     )
 
 
-def placement_payload(instances: list[AirPurifierInstance]) -> dict[str, Any]:
+def placement_payload(
+    instances: list[AirPurifierInstance],
+    working_crs: str = "EPSG:25832",
+) -> dict[str, Any]:
     return {
         "type": "FeatureCollection",
         "name": "air_purifier_placements",
-        "crs": {"type": "name", "properties": {"name": "EPSG:25832"}},
+        "crs": {"type": "name", "properties": {"name": working_crs}},
         "features": [
             {
                 "type": "Feature", "geometry": {"type": "Point", "coordinates": [item.projected_x, item.projected_y]},
@@ -180,7 +183,7 @@ def _air_purifiers_input_fingerprint(
     return lightweight_state_fingerprint(
         {
             "stage": "air-purifiers",
-            "crs": config.region.crs,
+            "crs": config.working_crs,
             "center": [config.region.center_lon, config.region.center_lat],
             "model_library_path": str(model_library_path),
             "terrain_geometry_path": str(terrain_geometry_path) if terrain_geometry_path else None,

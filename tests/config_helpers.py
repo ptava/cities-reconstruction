@@ -62,7 +62,7 @@ def write_complete_config(
     name: str = "Fixture",
     center_lat: float = 43.7696,
     center_lon: float = 11.2558,
-    crs: str = "EPSG:25832",
+    crs: str | None = "EPSG:25832",
     inner_diameter_m: float | None = 200.0,
     outer_diameter_m: float = 400.0,
     overpass_url: str = "https://example.test/overpass",
@@ -120,15 +120,17 @@ min_height = 2.0
         if inner_diameter_m is not None
         else ""
     )
+    reconstruction_block = f'[reconstruction]\nworking_crs = "{crs}"' if crs else ""
     path.write_text(
         f"""
 [region]
 name = "{name}"
 center_lat = {center_lat}
 center_lon = {center_lon}
-crs = "{crs}"
 {inner_diameter_line}
 outer_diameter_m = {outer_diameter_m}
+
+{reconstruction_block}
 
 [inputs]
 overpass_url = "{overpass_url}"

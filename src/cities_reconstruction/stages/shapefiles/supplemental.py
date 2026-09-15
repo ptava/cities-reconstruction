@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,6 +13,8 @@ from shapely.geometry import Polygon, mapping
 from shapely.validation import make_valid
 
 from cities_reconstruction.config import AppConfig, ConfigError, SupplementalShapefileConfig
+from cities_reconstruction.geometry.crs import WGS84, crs_label, transform_xy
+from cities_reconstruction.geometry.crs_inputs import source_crs
 
 from .inputs import (
     read_dbf_attributes,
@@ -60,6 +62,8 @@ def load_supplemental_tree_features(
     if not path.exists():
         raise ConfigError(f"supplemental input '{tree_input.name}' shapefile does not exist: {path}")
 
+    tree_input = replace(tree_input, crs=source_crs(path, tree_input.crs))
+    assert tree_input.crs is not None
     records = read_point_records(path, tree_input.name)
     attributes = read_dbf_attributes(path.with_suffix(".dbf"))
     features: list[dict[str, Any]] = []
@@ -102,6 +106,8 @@ def load_supplemental_surface_features(
     if not path.exists():
         raise ConfigError(f"supplemental input '{surface.name}' shapefile does not exist: {path}")
 
+    surface = replace(surface, crs=source_crs(path, surface.crs))
+    assert surface.crs is not None
     records = read_polygon_records(path, surface.name)
     attributes = read_dbf_attributes(path.with_suffix(".dbf"))
     features: list[dict[str, Any]] = []
@@ -190,7 +196,8 @@ def _surface_shapefile_feature(
             "source_type": "supplemental",
             "supplemental_input_id": source_name,
             "source": str(path),
-            "source_crs": source_crs,
+            "source_crs": crs_label(source_crs),
+            "source_crs_definition": source_crs,
             "source_attributes": attributes,
             "record_number": record_number,
             "contributes_to_geometry": True,
@@ -212,190 +219,10 @@ def _shapefile_xy_to_lonlat(
     source_crs: str,
     config_key: str,
 ) -> tuple[float, float]:
-    crs = _normalized_crs(source_crs)
-    if crs == "EPSG:4326":
-        return x, y
-    if crs == "EPSG:25832":
-        return _transverse_mercator_to_lonlat(
-            x,
-            y,
-            semi_major=6378137.0,
-            inverse_flattening=298.257223563,
-            central_meridian_deg=9.0,
-            scale=0.9996,
-            false_easting=500000.0,
-        )
-    if crs == "EPSG:3003":
-        lon, lat = _transverse_mercator_to_lonlat(
-            x,
-            y,
-            semi_major=6378388.0,
-            inverse_flattening=297.0,
-            central_meridian_deg=9.0,
-            scale=0.9996,
-            false_easting=1500000.0,
-        )
-        return _helmert_to_wgs84_lonlat(
-            lon,
-            lat,
-            semi_major=6378388.0,
-            inverse_flattening=297.0,
-            tx=-104.1,
-            ty=-49.1,
-            tz=-9.9,
-            rx_arcsec=0.971,
-            ry_arcsec=-2.917,
-            rz_arcsec=0.714,
-            scale_ppm=-11.68,
-        )
-    raise ConfigError(
-        f"{config_key} currently supports EPSG:4326, EPSG:25832, and EPSG:3003"
-    )
-
-
-def _normalized_crs(value: str) -> str:
-    return value.strip().upper().replace("::", ":")
-
-
-def _transverse_mercator_to_lonlat(
-    easting: float,
-    northing: float,
-    *,
-    semi_major: float,
-    inverse_flattening: float,
-    central_meridian_deg: float,
-    scale: float,
-    false_easting: float,
-) -> tuple[float, float]:
-    flattening = 1.0 / inverse_flattening
-    eccentricity_sq = flattening * (2.0 - flattening)
-    second_eccentricity_sq = eccentricity_sq / (1.0 - eccentricity_sq)
-    x = easting - false_easting
-    meridional_arc = northing / scale
-    mu = meridional_arc / (
-        semi_major
-        * (
-            1.0
-            - eccentricity_sq / 4.0
-            - 3.0 * eccentricity_sq**2 / 64.0
-            - 5.0 * eccentricity_sq**3 / 256.0
-        )
-    )
-    e1 = (1.0 - math.sqrt(1.0 - eccentricity_sq)) / (1.0 + math.sqrt(1.0 - eccentricity_sq))
-    footpoint_lat = (
-        mu
-        + (3.0 * e1 / 2.0 - 27.0 * e1**3 / 32.0) * math.sin(2.0 * mu)
-        + (21.0 * e1**2 / 16.0 - 55.0 * e1**4 / 32.0) * math.sin(4.0 * mu)
-        + (151.0 * e1**3 / 96.0) * math.sin(6.0 * mu)
-        + (1097.0 * e1**4 / 512.0) * math.sin(8.0 * mu)
-    )
-    sin_lat = math.sin(footpoint_lat)
-    cos_lat = math.cos(footpoint_lat)
-    tan_lat = math.tan(footpoint_lat)
-    n1 = semi_major / math.sqrt(1.0 - eccentricity_sq * sin_lat**2)
-    r1 = semi_major * (1.0 - eccentricity_sq) / (1.0 - eccentricity_sq * sin_lat**2) ** 1.5
-    t1 = tan_lat**2
-    c1 = second_eccentricity_sq * cos_lat**2
-    d = x / (n1 * scale)
-    lat = footpoint_lat - (n1 * tan_lat / r1) * (
-        d**2 / 2.0
-        - (5.0 + 3.0 * t1 + 10.0 * c1 - 4.0 * c1**2 - 9.0 * second_eccentricity_sq) * d**4 / 24.0
-        + (
-            61.0
-            + 90.0 * t1
-            + 298.0 * c1
-            + 45.0 * t1**2
-            - 252.0 * second_eccentricity_sq
-            - 3.0 * c1**2
-        )
-        * d**6
-        / 720.0
-    )
-    lon = math.radians(central_meridian_deg) + (
-        d
-        - (1.0 + 2.0 * t1 + c1) * d**3 / 6.0
-        + (5.0 - 2.0 * c1 + 28.0 * t1 - 3.0 * c1**2 + 8.0 * second_eccentricity_sq + 24.0 * t1**2)
-        * d**5
-        / 120.0
-    ) / cos_lat
-    return math.degrees(lon), math.degrees(lat)
-
-
-def _helmert_to_wgs84_lonlat(
-    lon_deg: float,
-    lat_deg: float,
-    *,
-    semi_major: float,
-    inverse_flattening: float,
-    tx: float,
-    ty: float,
-    tz: float,
-    rx_arcsec: float,
-    ry_arcsec: float,
-    rz_arcsec: float,
-    scale_ppm: float,
-) -> tuple[float, float]:
-    x, y, z = _geodetic_to_cartesian(
-        lon_deg,
-        lat_deg,
-        semi_major=semi_major,
-        inverse_flattening=inverse_flattening,
-    )
-    rotation_scale = math.pi / (180.0 * 3600.0)
-    rx = rx_arcsec * rotation_scale
-    ry = ry_arcsec * rotation_scale
-    rz = rz_arcsec * rotation_scale
-    scale = 1.0 + scale_ppm * 1.0e-6
-    wgs84_x = tx + scale * x - rz * y + ry * z
-    wgs84_y = ty + rz * x + scale * y - rx * z
-    wgs84_z = tz - ry * x + rx * y + scale * z
-    return _cartesian_to_geodetic(
-        wgs84_x,
-        wgs84_y,
-        wgs84_z,
-        semi_major=6378137.0,
-        inverse_flattening=298.257223563,
-    )
-
-
-def _geodetic_to_cartesian(
-    lon_deg: float,
-    lat_deg: float,
-    *,
-    semi_major: float,
-    inverse_flattening: float,
-) -> tuple[float, float, float]:
-    lon = math.radians(lon_deg)
-    lat = math.radians(lat_deg)
-    flattening = 1.0 / inverse_flattening
-    eccentricity_sq = flattening * (2.0 - flattening)
-    prime_vertical_radius = semi_major / math.sqrt(1.0 - eccentricity_sq * math.sin(lat) ** 2)
-    x = prime_vertical_radius * math.cos(lat) * math.cos(lon)
-    y = prime_vertical_radius * math.cos(lat) * math.sin(lon)
-    z = prime_vertical_radius * (1.0 - eccentricity_sq) * math.sin(lat)
-    return x, y, z
-
-
-def _cartesian_to_geodetic(
-    x: float,
-    y: float,
-    z: float,
-    *,
-    semi_major: float,
-    inverse_flattening: float,
-) -> tuple[float, float]:
-    flattening = 1.0 / inverse_flattening
-    semi_minor = semi_major * (1.0 - flattening)
-    eccentricity_sq = flattening * (2.0 - flattening)
-    second_eccentricity_sq = (semi_major**2 - semi_minor**2) / semi_minor**2
-    horizontal_radius = math.hypot(x, y)
-    theta = math.atan2(z * semi_major, horizontal_radius * semi_minor)
-    lon = math.atan2(y, x)
-    lat = math.atan2(
-        z + second_eccentricity_sq * semi_minor * math.sin(theta) ** 3,
-        horizontal_radius - eccentricity_sq * semi_major * math.cos(theta) ** 3,
-    )
-    return math.degrees(lon), math.degrees(lat)
+    try:
+        return transform_xy(x, y, source_crs, WGS84)
+    except ConfigError as exc:
+        raise ConfigError(f"{config_key}: {exc}") from exc
 
 
 def _tree_shapefile_feature(
@@ -425,6 +252,7 @@ def _tree_shapefile_feature(
     if point_index > 1:
         tree_id = f"{tree_id}_{point_index}"
     tags = tree_tags_from_attributes(attributes)
+    assert tree_input.crs is not None
     return {
         "type": "Feature",
         "geometry": geometry,
@@ -437,7 +265,8 @@ def _tree_shapefile_feature(
             "source_type": "supplemental",
             "supplemental_input_id": tree_input.name,
             "source": str(path),
-            "source_crs": tree_input.crs,
+            "source_crs": crs_label(tree_input.crs),
+            "source_crs_definition": tree_input.crs,
             "source_attributes": attributes,
             "record_number": record_number,
             "sequence_index": sequence_index,

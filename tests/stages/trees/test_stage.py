@@ -579,6 +579,61 @@ def test_rejects_unlisted_or_preview_city_models_terrain(
     assert str(manifest.manifest_path) in str(error.value)
 
 
+def test_rejects_city_models_terrain_from_different_working_crs(tmp_path: Path) -> None:
+    config = load_config(_prepare_tree_fixture(tmp_path))
+    stage_dir = config.output.root_directory / "04_city_models"
+    terrain_path = stage_dir / "city4cfd_output" / "Mesh_Terrain_Combined.obj"
+    terrain_path.parent.mkdir(parents=True)
+    terrain_path.write_text("v 0 0 0\n", encoding="utf-8")
+    publish_stage_manifest(
+        stage="city-models",
+        status=StageStatus.COMPLETED,
+        output_directory=stage_dir,
+        report_path=stage_dir / "city_models_report.md",
+        preview_path=stage_dir / "city_models_preview.html",
+        input_state_fingerprint={"fixture": "stale-crs"},
+        artifacts=(ArtifactReference("terrain", terrain_path, ArtifactKind.HANDOFF),),
+        metrics={},
+        details={"crs": "EPSG:32633"},
+    )
+
+    with pytest.raises(ConfigError, match="terrain.*CRS.*rerun"):
+        validate_completed_city_models_terrain(config, terrain_path)
+
+
+def test_build_tree_instances_projects_second_zone_and_preserves_local_origin(tmp_path: Path) -> None:
+    config = load_config(_prepare_tree_fixture(tmp_path))
+    from cities_reconstruction.config import ReconstructionConfig
+    from cities_reconstruction.geometry.spatial_plan import prepare_config
+    config = prepare_config(replace(config, reconstruction=ReconstructionConfig("EPSG:32633")))
+    features = trees._read_feature_collection(
+        config.output.root_directory / "01_shapefiles" / "trees.geojson"
+    )
+    origin_x, origin_y = 198600.0, 4853000.0
+    sampled_local_coordinates: list[tuple[float, float]] = []
+
+    def sample_terrain(local_x: float, local_y: float) -> float:
+        sampled_local_coordinates.append((local_x, local_y))
+        return 12.5
+
+    instances = trees._build_tree_instances(
+        features[:1],
+        config,
+        origin_x,
+        origin_y,
+        sample_terrain,
+    )
+
+    assert (instances[0].x, instances[0].y) == pytest.approx(
+        (198643.41497553675, 4853099.8229988525), abs=0.001
+    )
+    assert len(sampled_local_coordinates) == 1
+    assert sampled_local_coordinates[0] == pytest.approx(
+        (43.41497553675, 99.8229988525), abs=0.001
+    )
+    assert instances[0].z == pytest.approx(12.45)
+
+
 def test_terrain_sampler_uses_nearest_surface_at_internal_mesh_hole(tmp_path: Path) -> None:
     terrain_path = tmp_path / "terrain_with_hole.obj"
     terrain_path.write_text(

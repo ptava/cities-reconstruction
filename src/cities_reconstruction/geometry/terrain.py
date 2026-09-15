@@ -5,12 +5,14 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from pathlib import Path
+from typing import NoReturn, TypeGuard
 
 from shapely import STRtree
 from shapely.geometry import MultiPoint, Point, Polygon
 from shapely.ops import nearest_points
 
 from cities_reconstruction.config import AppConfig, ConfigError
+from cities_reconstruction.geometry.crs import crs_equal, project_lonlat
 from cities_reconstruction.stage_contract import (
     ArtifactKind,
     require_completed_manifest,
@@ -27,6 +29,7 @@ def validate_completed_city_models_terrain(
     path: Path,
     *,
     context: str = "tree",
+    expected_working_crs: str | None = None,
 ) -> None:
     """Reject configured city-models terrain produced by a failed handoff."""
 
@@ -52,6 +55,45 @@ def validate_completed_city_models_terrain(
         manifest,
         path=path,
         kind=ArtifactKind.HANDOFF,
+    )
+    expected_crs = expected_working_crs or config.working_crs
+    producing_crs = manifest.details.get("crs")
+    if not isinstance(producing_crs, str) or not crs_equal(producing_crs, expected_crs):
+        declared = producing_crs if isinstance(producing_crs, str) else "missing"
+        raise ConfigError(
+            f"configured {context} terrain was produced in CRS {declared!r}, not the current "
+            f"working CRS {expected_crs!r}; rerun the city-models stage before using this terrain"
+        )
+    expected_origin = project_lonlat(
+        config.region.center_lon,
+        config.region.center_lat,
+        config.working_crs,
+    )
+    producing_origin = manifest.details.get("local_origin")
+    if not isinstance(producing_origin, dict):
+        _raise_invalid_terrain_origin(context)
+    origin_x = producing_origin.get("x")
+    origin_y = producing_origin.get("y")
+    if not _is_finite_number(origin_x) or not _is_finite_number(origin_y):
+        _raise_invalid_terrain_origin(context)
+    if not (
+        math.isclose(float(origin_x), expected_origin[0], rel_tol=0.0, abs_tol=0.001)
+        and math.isclose(float(origin_y), expected_origin[1], rel_tol=0.0, abs_tol=0.001)
+    ):
+        raise ConfigError(
+            f"configured {context} terrain local origin does not match the current ROI center; "
+            "rerun the city-models stage before using this terrain"
+        )
+
+
+def _is_finite_number(value: object) -> TypeGuard[int | float]:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _raise_invalid_terrain_origin(context: str) -> NoReturn:
+    raise ConfigError(
+        f"configured {context} terrain local origin is missing or malformed; "
+        "rerun the city-models stage before using this terrain"
     )
 
 

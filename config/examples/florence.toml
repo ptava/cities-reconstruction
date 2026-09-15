@@ -14,9 +14,6 @@ name = "Florence example"
 # Geographic centre in decimal degrees (WGS84 longitude/latitude semantics).
 center_lat = 43.7696
 center_lon = 11.2558
-# Metric output CRS. The implemented DTM/DSM and tree stages currently require
-# EPSG:25832 even though the parser accepts a non-empty CRS string.
-crs = "EPSG:25832"
 # Optional inner diameter in metres. When present, features inside it form the
 # primary reconstruction ROI and the surrounding area up to outer_diameter_m
 # is contextual terrain. To treat the entire outer ROI uniformly, comment out
@@ -25,6 +22,15 @@ inner_diameter_m = 300.0
 # Required total retrieval/clipping diameter in metres. It must be positive and
 # no smaller than inner_diameter_m when the inner diameter is enabled.
 outer_diameter_m = 500.0
+
+# Advanced optional override. Usually omit: the application selects a suitable
+# dataset CRS (EPSG:25832 for the Florence rasters), otherwise ROI UTM.
+# working_crs is the target horizontal CRS for City4CFD. Vector inputs and
+# prepared point clouds are transformed to it; DTM/DSM must already use it
+# because raster reprojection is not yet supported. It never declares an
+# input dataset's existing coordinates.
+# [reconstruction]
+# working_crs = "EPSG:25832"
 
 [inputs]
 # Overpass API endpoint, positive per-request timeout, total attempt count, and
@@ -37,16 +43,28 @@ overpass_max_attempts = 3
 overpass_retry_backoff_s = 2.0
 
 # DTM and DSM folders containing matching ESRI ASCII-grid tiles. Both are
-# required by the implemented point-cloud stage and must use the configured
-# metric CRS. The DSM is split into building and optional tree points using the
-# DTM elevations and stage-1 footprints.
+# required in raster mode and must already share one projected metre CRS.
+# Automatic raster reprojection/resampling is not implemented. The DSM is
+# split using the DTM elevations and stage-1 footprints.
 dtm_directory = "../../docs/assets/dtm/DTM_2023"
 dsm_directory = "../../docs/assets/dsm/DSM_2023"
+# Dataset CRS, independent of ROI latitude/longitude. Adjacent .prj files are
+# checked when present; conflicting declarations fail before raster sampling.
+dtm_source_crs = "EPSG:25832"
+dsm_source_crs = "EPSG:25832"
+
+# Alternative: remove both raster directories/declarations and supply a pair
+# of vertex-only ASCII PLY files with absolute source X/Y and metre heights.
+# X/Y is transformed only if the working CRS differs; Z is unchanged.
+# Clouds must already be classified into ground/buildings. Do not set a canopy overlay.
+# ground_point_cloud_path = "../../path/to/ground.ply"
+# building_point_cloud_path = "../../path/to/buildings.ply"
+# point_cloud_source_crs = "EPSG:25832"
 
 # Reserved legacy input for one prebuilt PLY. It is shown for schema
 # completeness but MUST remain commented: City4CFD needs separate ground and
 # building clouds, so the current point-cloud stage rejects this single-file
-# form. Use the DTM/DSM pair above.
+# form. Use DTM/DSM or the explicit ground/building pair above.
 # point_cloud_path = "../../path/to/input.ply"
 
 # Non-negative distance in metres used to remove OSM tree nodes duplicated by
@@ -92,7 +110,7 @@ surface_precedence = [
 [[shapefiles.supplemental]]
 name = "streets"
 path = "../../docs/assets/data/florence_opendata/streets/areestradaliPolygon.shp"
-crs = "EPSG:3003"
+source_crs = "EPSG:3003" # Optional when .prj is present; if set, must agree.
 category = "roads"
 group_tag = "street_area"
 enabled = true
@@ -100,7 +118,7 @@ enabled = true
 [[shapefiles.supplemental]]
 name = "green_areas"
 path = "../../docs/assets/data/florence_opendata/green_areas/aree_verdi.shp"
-crs = "EPSG:3003"
+source_crs = "EPSG:3003"
 category = "green_areas"
 group_tag = "green_area"
 enabled = true
@@ -108,7 +126,7 @@ enabled = true
 [[shapefiles.supplemental]]
 name = "florence_tree_inventory"
 path = "../../docs/assets/data/florence_opendata/trees_diameter/trees.shp"
-crs = "EPSG:3003"
+source_crs = "EPSG:3003"
 category = "trees"
 enabled = true
 
@@ -119,8 +137,8 @@ enabled = true
 name = "mercato_centrale"
 path = "../../docs/assets/data/urban_planning/mercato_centrale/urban_plan.geojson"
 # Optional coordinate CRS for this GeoJSON. It defaults to EPSG:4326
-# (longitude/latitude); set it to EPSG:3857 for Web Mercator x/y metres.
-# crs = "EPSG:4326"
+# (longitude/latitude); other PROJ-recognized horizontal CRSs use GIS x/y order.
+# source_crs = "EPSG:4326"
 enabled = true
 
 [[shapefiles.classification_rules]]

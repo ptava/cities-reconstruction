@@ -12,9 +12,10 @@ from typing import NoReturn
 from .cli_options import StageCliOption
 from .config import (
     AppConfig,
-    load_config,
+    load_settings,
 )
 from .errors import ApplicationError, UsageError
+from .geometry.spatial_plan import prepare_config
 from .pipeline import (
     EXECUTABLE_STAGE_NAMES,
     OPTIONAL_STAGE_NAMES,
@@ -31,7 +32,7 @@ from .pipeline_execution import (
 )
 from .stage_contract import StageOutput, StageStatus
 from .stage_result import StageResult
-from .stage_runtime import StageRunOptions
+from .stage_runtime import StageRunOptions, prepare_run_config
 
 
 class ApplicationArgumentParser(argparse.ArgumentParser):
@@ -57,6 +58,7 @@ def build_parser(run_stage_name: str | None = None) -> argparse.ArgumentParser:
         help="Validate a TOML configuration file.",
     )
     _add_config_argument(validate)
+    _add_json_argument(validate)
 
     dry = subparsers.add_parser(
         "dry-run",
@@ -165,11 +167,21 @@ def _run(arguments: Sequence[str]) -> int:
     if unknown and scope_error is None:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
-    config = load_config(args.config)
+    config = load_settings(args.config)
     if scope_error is not None:
         raise UsageError(scope_error)
 
+    config = (
+        prepare_run_config(config, _stage_run_options(args))
+        if args.command in {"run", "run-stage"}
+        else prepare_config(config)
+    )
+
     if args.command == "validate-config":
+        if args.json:
+            print(json.dumps({"valid": True, "coordinate_plan": config.coordinate_plan.to_dict()}, indent=2))
+            return 0
+        print(config.coordinate_plan.describe())
         inner_description = (
             f"inner {config.region.inner_diameter_m:g} m, "
             if config.region.inner_diameter_m is not None
@@ -177,7 +189,7 @@ def _run(arguments: Sequence[str]) -> int:
         )
         print(
             "Configuration is valid: "
-            f"{config.region.name} ({config.region.crs}, "
+            f"{config.region.name} ({config.working_crs}, "
             f"{inner_description}"
             f"outer {config.region.outer_diameter_m:g} m)"
         )
@@ -187,7 +199,7 @@ def _run(arguments: Sequence[str]) -> int:
         stages = None if args.stage == "all" else [args.stage]
         results = dry_run(config, stages=stages)
         if args.json:
-            print(json.dumps([result.to_dict() for result in results], indent=2))
+            print(json.dumps([{**result.to_dict(), "coordinate_plan": config.coordinate_plan.to_dict()} for result in results], indent=2))
         else:
             _print_dry_run(config, results)
         return 0
@@ -202,16 +214,20 @@ def _run(arguments: Sequence[str]) -> int:
         if validation_error is not None:
             raise UsageError(validation_error)
         _emit_execution_plan(plan, as_json=args.json)
+        if not args.json:
+            print(config.coordinate_plan.describe(), flush=True)
         execution = execute_pipeline(config, plan, _stage_run_options(args))
-        _emit_pipeline_execution(execution, as_json=args.json)
+        _emit_pipeline_execution(execution, config=config, as_json=args.json)
         return 0 if execution.completed else 1
 
     if args.command == "run-stage":
         runner = STAGE_BY_NAME[args.stage].runner
         if runner is None:
             parser.error(f"Stage is not executable: {args.stage}")
+        if not args.json:
+            print(config.coordinate_plan.describe(), flush=True)
         result = runner(config, _stage_run_options(args))
-        _emit_stage_result(result, as_json=args.json)
+        _emit_stage_result(result, config=config, as_json=args.json)
         return _stage_exit_code(result)
     parser.error(f"Unhandled command: {args.command}")
     return 2
@@ -381,10 +397,11 @@ def _emit_execution_plan(plan: ExecutionPlan, *, as_json: bool) -> None:
 def _emit_pipeline_execution(
     execution: PipelineExecution,
     *,
+    config: AppConfig,
     as_json: bool,
 ) -> None:
     if as_json:
-        print(json.dumps(execution.to_dict(), indent=2))
+        print(json.dumps({**execution.to_dict(), "coordinate_plan": config.coordinate_plan.to_dict()}, indent=2))
         return
     for result in execution.results:
         print(result.report_path.read_text(encoding="utf-8").rstrip())
@@ -393,10 +410,11 @@ def _emit_pipeline_execution(
 def _emit_stage_result(
     result: StageOutput,
     *,
+    config: AppConfig,
     as_json: bool,
 ) -> None:
     if as_json:
-        print(json.dumps(result.to_dict(), indent=2))
+        print(json.dumps({**result.to_dict(), "coordinate_plan": config.coordinate_plan.to_dict()}, indent=2))
     else:
         print(result.report_path.read_text(encoding="utf-8").rstrip())
 
@@ -410,7 +428,7 @@ def _print_dry_run(
     results: Sequence[StageResult],
 ) -> None:
     print(f"Dry run for {config.region.name}")
-    print(f"CRS: {config.region.crs}")
+    print(config.coordinate_plan.describe())
     inner_description = (
         f"inner {config.region.inner_diameter_m:g} m, "
         if config.region.inner_diameter_m is not None

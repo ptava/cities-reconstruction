@@ -10,7 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cities_reconstruction.artifacts import atomic_write_text, stage_output_lock
-from cities_reconstruction.config import AppConfig, ConfigError
+from cities_reconstruction.config import AppConfig
+from cities_reconstruction.geometry.crs import project_lonlat, validate_working_crs
+from cities_reconstruction.geometry.spatial_plan import verify_spatial_plan
 from cities_reconstruction.geometry.terrain import (
     load_terrain_sampler,
     validate_completed_city_models_terrain,
@@ -39,7 +41,7 @@ from cities_reconstruction.stages.trees.geometry import (
     crown_triangles as _crown_triangles,
 )
 from cities_reconstruction.stages.trees.geometry import (
-    lonlat_to_epsg25832 as _lonlat_to_epsg25832,
+    lonlat_to_epsg25832 as _lonlat_to_epsg25832,  # noqa: F401
 )
 from cities_reconstruction.stages.trees.geometry import (
     translate_triangles as _translate_triangles,
@@ -128,7 +130,7 @@ def plan(config: AppConfig) -> StageResult:
         planned_actions=(
             f"Use {config.trees.default} as the configured fallback species for tree features without species tags.",
             "Read retrieved OSM tree features from module 1.",
-            "Project tree placements to the configured EPSG:25832 metric CRS.",
+            f"Project tree placements to the configured {config.working_crs} metric CRS.",
             "Optionally project tree bases onto a supplied city-models terrain geometry file so trunk bases sit just below the local terrain surface.",
             "Resolve species through the configured species/category mapping and scale category models with available tree height/diameter tags.",
             "Write trunk, crown, and combined STL surfaces plus an interactive HTML QA preview.",
@@ -140,6 +142,7 @@ def plan(config: AppConfig) -> StageResult:
 def run(config: AppConfig) -> TreesStageOutput:
     """Generate deterministic parametric tree meshes from stage-1 tree features."""
 
+    verify_spatial_plan(config)
     output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     with stage_output_lock(output_dir, STAGE_ID.value):
         invalidate_stage_manifests(
@@ -152,8 +155,7 @@ def run(config: AppConfig) -> TreesStageOutput:
 def _run_locked(config: AppConfig, output_dir: Path) -> TreesStageOutput:
     """Generate tree outputs while the caller owns the stage-output lock."""
 
-    if config.region.crs != "EPSG:25832":
-        raise ConfigError("tree model generation currently supports EPSG:25832 output coordinates")
+    validate_working_crs(config.working_crs)
 
     stage1_manifest = require_completed_manifest(
         stage_output_directory(config.output.root_directory, StageId.SHAPEFILES) / "manifest.json",
@@ -178,11 +180,17 @@ def _run_locked(config: AppConfig, output_dir: Path) -> TreesStageOutput:
     crowns_stl_path = surfaces_dir / "tree_crowns.stl"
     combined_stl_path = surfaces_dir / "trees_combined.stl"
     species_crowns_dir = surfaces_dir / "species_crowns"
-    surface_origin_x, surface_origin_y = _lonlat_to_epsg25832(config.region.center_lon, config.region.center_lat)
+    surface_origin_x, surface_origin_y = project_lonlat(
+        config.region.center_lon, config.region.center_lat, config.working_crs
+    )
     terrain_geometry_path = config.inputs.tree_terrain_geometry_path
     terrain_sampler = None
     if terrain_geometry_path is not None:
-        validate_completed_city_models_terrain(config, terrain_geometry_path)
+        validate_completed_city_models_terrain(
+            config,
+            terrain_geometry_path,
+            expected_working_crs=config.working_crs,
+        )
         terrain_sampler = load_terrain_sampler(terrain_geometry_path)
 
     instances = _build_tree_instances(features, config, surface_origin_x, surface_origin_y, terrain_sampler)
@@ -200,7 +208,10 @@ def _run_locked(config: AppConfig, output_dir: Path) -> TreesStageOutput:
     species_crown_paths = _write_species_crown_stls(species_crowns_dir, instances, surface_origin_x, surface_origin_y)
 
     species_counts = _species_counts(instances)
-    atomic_write_text(placement_path, json.dumps(_placement_geojson(instances), indent=2, sort_keys=True))
+    atomic_write_text(
+        placement_path,
+        json.dumps(_placement_geojson(instances, config.working_crs), indent=2, sort_keys=True),
+    )
     atomic_write_text(library_path, json.dumps(_library_payload(config), indent=2, sort_keys=True))
     atomic_write_text(preview_path, _render_preview(config, instances, surface_origin_x, surface_origin_y))
     atomic_write_text(

@@ -148,7 +148,7 @@ def render_report(
 
 - Name: {config.region.name}
 - Center: {config.region.center_lat:g}, {config.region.center_lon:g}
-- CRS: {config.region.crs}
+- CRS: {config.working_crs}
 {inner_diameter_line}
 - Outer diameter: {config.region.outer_diameter_m:g} m
 - Source: {summary["source"]}

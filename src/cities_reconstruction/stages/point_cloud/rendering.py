@@ -37,6 +37,21 @@ def render_preview_html(
         projected_bbox=projected_bbox,
     )
     scene_json = json.dumps(scene, separators=(",", ":"))
+    supplied = diagnostics.get("input_mode") == "supplied_clouds"
+    preparation_note = f"""Drag to rotate the 3D view. Use the mouse wheel or zoom buttons to zoom in and out. Use the terrain-load buttons to control sampled DTM terrain points, the buildings-cloud buttons to control sampled building and filtered tree points, and the unclassified-cloud buttons to control unclassified DSM points independently. Green points are voxel-grid subsampled DTM ground points, blue points are voxel-grid subsampled DSM building points, red points are DSM cells filtered as trees, purple points are valid DSM points not classified as buildings or trees, and brown outlines are projected footprints placed on the nearest local ground elevation. Tree candidates come from vegetation-colored overlay pixels or nearby stage-1 natural=tree tags. If a candidate is inside a building footprint or within {tree_building_footprint_buffer_m:g} m of one, it enters the tree cloud only when the candidate DSM Z differs from estimated nearby roof Z by at least {tree_roof_offset_threshold_m:g} m inside a {tree_roof_search_radius_m:g} m XY search radius. Local DSM relief fallback is used only outside the buffered building-footprint zone. The preview uses the same meter-scale height differences as the exported PLY files and does not exaggerate vertical scale. Alignment status: {escape(str(diagnostics["alignment_status"]))}; estimated horizontal shift: {diagnostics["estimated_horizontal_shift_m"]} m."""
+    if supplied:
+        preparation_note = (
+            "Drag to rotate; use the mouse wheel or zoom buttons to zoom. "
+            "Green and blue points are user-classified ground and building clouds transformed to the working CRS. "
+            "Brown outlines are projected footprints on local ground. Heights are not exaggerated. "
+            "Raster classification and tree filtering are not applicable. "
+            f"Alignment status: {escape(str(diagnostics['alignment_status']))}; "
+            f"estimated horizontal shift: {diagnostics['estimated_horizontal_shift_m']} m."
+        )
+    building_description = "user-classified building points" if supplied else "DSM points classified as buildings"
+    classification_legend = "" if supplied else """
+    <span><span class="swatch" style="background:#dc2626"></span>filtered tree DSM points</span>
+    <span><span class="swatch" style="background:#7c3aed"></span>sampled unclassified DSM cloud</span>"""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -88,11 +103,10 @@ def render_preview_html(
   <div class="legend">
     <span><span class="swatch" style="background:#16a34a"></span>sampled ground cloud</span>
     <span><span class="swatch" style="background:#2563eb"></span>sampled building cloud</span>
-    <span><span class="swatch" style="background:#dc2626"></span>filtered tree DSM points</span>
-    <span><span class="swatch" style="background:#7c3aed"></span>sampled unclassified DSM cloud</span>
+    {classification_legend}
     <span><span class="swatch" style="background:#b45309"></span>projected footprints on local terrain</span>
   </div>
-  <p class="note">Drag to rotate the 3D view. Use the mouse wheel or zoom buttons to zoom in and out. Use the terrain-load buttons to control sampled DTM terrain points, the buildings-cloud buttons to control sampled building and filtered tree points, and the unclassified-cloud buttons to control unclassified DSM points independently. Green points are voxel-grid subsampled DTM ground points, blue points are voxel-grid subsampled DSM building points, red points are DSM cells filtered as trees, purple points are valid DSM points not classified as buildings or trees, and brown outlines are projected footprints placed on the nearest local ground elevation. Tree candidates come from vegetation-colored overlay pixels or nearby stage-1 natural=tree tags. If a candidate is inside a building footprint or within {tree_building_footprint_buffer_m:g} m of one, it enters the tree cloud only when the candidate DSM Z differs from estimated nearby roof Z by at least {tree_roof_offset_threshold_m:g} m inside a {tree_roof_search_radius_m:g} m XY search radius. Local DSM relief fallback is used only outside the buffered building-footprint zone. The preview uses the same meter-scale height differences as the exported PLY files and does not exaggerate vertical scale. Alignment status: {escape(str(diagnostics["alignment_status"]))}; estimated horizontal shift: {diagnostics["estimated_horizontal_shift_m"]} m.</p>
+  <p class="note">{preparation_note}</p>
   <h2>Buildings And Footprints</h2>
   <div class="zoom-controls" aria-label="Building point-cloud preview zoom controls">
     <button type="button" data-view-index="1" data-zoom-in>Zoom in</button>
@@ -108,7 +122,7 @@ def render_preview_html(
     <span><span class="swatch" style="background:#2563eb"></span>sampled building cloud</span>
     <span><span class="swatch" style="background:#b45309"></span>projected footprints on local terrain</span>
   </div>
-  <p class="note">This plot isolates the City4CFD building handoff: DSM points classified as buildings are shown with the projected footprint rings and no terrain or tree points.</p>
+  <p class="note">This plot isolates the City4CFD building handoff: {building_description} are shown with the projected footprint rings and no terrain or tree points.</p>
   <script>
     const scene = {scene_json};
     const views = [

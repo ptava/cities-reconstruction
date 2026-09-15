@@ -25,6 +25,9 @@ from cities_reconstruction.artifacts import (
     stage_output_lock,
 )
 from cities_reconstruction.config import AppConfig
+from cities_reconstruction.geometry.crs import lonlat_bbox_from_radius
+from cities_reconstruction.geometry.crs_inputs import projection_sidecar
+from cities_reconstruction.geometry.spatial_plan import verify_spatial_plan
 from cities_reconstruction.stage_contract import (
     ArtifactReference,
     JsonValue,
@@ -67,7 +70,6 @@ from .supplemental import (
     load_supplemental_tree_features as _load_supplemental_tree_features,
 )
 from .transformation import (
-    EARTH_RADIUS_M,
     _circle_polygon_m,
     _extract_polygons,
     _feature_to_shapely_polygons,
@@ -213,6 +215,7 @@ def plan(config: AppConfig) -> StageResult:
 def run(config: AppConfig, overpass_json_path: Path | None = None) -> ShapefilesStageOutput:
     """Execute the first pipeline stage and write retrieved feature artifacts."""
 
+    verify_spatial_plan(config)
     output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     with stage_output_lock(output_dir, STAGE_ID.value):
         invalidate_stage_manifests(output_dir)
@@ -504,6 +507,9 @@ def _shapefiles_input_fingerprint(
     for supplemental in config.shapefiles.supplemental:
         if supplemental.enabled:
             paths.append(supplemental.path)
+            sidecar = projection_sidecar(supplemental.path)
+            if sidecar is not None:
+                paths.append(sidecar)
             dbf_path = supplemental.path.with_suffix(".dbf")
             if dbf_path.is_file():
                 paths.append(dbf_path)
@@ -538,7 +544,7 @@ def _shapefiles_runtime_configuration(config: AppConfig) -> dict[str, Any]:
             "name": config.region.name,
             "center_lat": config.region.center_lat,
             "center_lon": config.region.center_lon,
-            "crs": config.region.crs,
+            "crs": config.working_crs,
             "inner_diameter_m": config.region.inner_diameter_m,
             "outer_diameter_m": config.region.outer_diameter_m,
         },
@@ -816,11 +822,8 @@ def _route_urban_planning_feature(feature: UrbanPlanningFeature) -> dict[str, An
 
 def _roi_bbox_lon_lat(config: AppConfig) -> tuple[float, float, float, float]:
     radius_m = config.region.outer_diameter_m / 2.0
-    lat_delta = math.degrees(radius_m / EARTH_RADIUS_M)
-    lon_delta = math.degrees(radius_m / (EARTH_RADIUS_M * math.cos(math.radians(config.region.center_lat))))
-    return (
-        config.region.center_lon - lon_delta,
-        config.region.center_lat - lat_delta,
-        config.region.center_lon + lon_delta,
-        config.region.center_lat + lat_delta,
+    return lonlat_bbox_from_radius(
+        center_lon=config.region.center_lon,
+        center_lat=config.region.center_lat,
+        radius_m=radius_m,
     )

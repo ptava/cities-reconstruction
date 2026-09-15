@@ -64,6 +64,24 @@ def test_project_surface_layer_feature_projects_lonlat_and_records_crs(tmp_path:
     }
 
 
+def test_project_surface_layer_feature_uses_second_zone_coordinates(tmp_path: Path) -> None:
+    feature = _polygon_feature(
+        [[11.2558, 43.7696], [11.2559, 43.7696], [11.2558, 43.7696]],
+        category="roads",
+    )
+
+    projected = project_surface_layer_feature(
+        feature,
+        target_crs="EPSG:32633",
+        source_path=tmp_path / "roads.geojson",
+    )
+
+    assert projected["geometry"]["coordinates"][0][0] == pytest.approx(
+        [198643.41497553675, 4853099.8229988525], abs=0.001
+    )
+    assert projected["properties"]["projected_crs"] == "EPSG:32633"
+
+
 def test_project_surface_layer_feature_rejects_non_lonlat_coordinates(tmp_path: Path) -> None:
     feature = _polygon_feature(
         [[681000.0, 4849000.0], [681001.0, 4849000.0], [681000.0, 4849000.0]],

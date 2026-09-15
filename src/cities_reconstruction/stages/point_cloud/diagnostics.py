@@ -45,6 +45,8 @@ def build_alignment_diagnostics(
     tree_mask: dict[str, Any] | None,
     tree_tag_points: list[tuple[float, float]],
     same_metric_output_crs: bool,
+    supplied_clouds: bool = False,
+    source_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the complete review payload for footprint/raster alignment."""
 
@@ -55,10 +57,12 @@ def build_alignment_diagnostics(
         message = "no building footprint polygons were available"
     elif not alignment_candidate_points:
         status = "warning"
-        message = "no elevated DSM points were available for alignment review; check the rasters and ROI"
+        message = ("no supplied building points were available for alignment review; check the cloud and ROI"
+                   if supplied_clouds else "no elevated DSM points were available for alignment review; check the rasters and ROI")
     elif score <= 0:
         status = "warning"
-        message = "no elevated DSM points overlapped building footprints within the alignment search radius"
+        message = ("no supplied building points overlapped building footprints within the alignment search radius"
+                   if supplied_clouds else "no elevated DSM points overlapped building footprints within the alignment search radius")
     elif shift_m > ALIGNMENT_FAIL_SHIFT_M:
         status = "failed"
         message = "estimated horizontal footprint/point-cloud shift exceeds the failure tolerance"
@@ -69,14 +73,15 @@ def build_alignment_diagnostics(
         status = "passed"
         message = "footprint and point-cloud alignment is within the configured tolerance"
 
-    return {
+    result: dict[str, Any] = {
+        "input_mode": "supplied_clouds" if supplied_clouds else "rasters",
         "alignment_status": status,
         "message": message,
         "crs": {
-            "target": config.region.crs,
-            "footprint_source": "EPSG:4326 GeoJSON coordinates projected to EPSG:25832",
-            "dtm_dsm_source": config.region.crs,
+            "target": config.working_crs,
+            "footprint_source": f"EPSG:4326 GeoJSON coordinates projected to {config.working_crs}",
             "same_metric_output_crs": same_metric_output_crs,
+            **(source_evidence or {}),
         },
         "footprint_path": str(footprint_path),
         "footprint_polygon_count": len(building_polygons),
@@ -132,7 +137,7 @@ def build_alignment_diagnostics(
         },
         "assumptions": [
             "City4CFD requires separate ground and building point clouds.",
-            "Footprint coordinates are interpreted as EPSG:4326 lon/lat and projected to EPSG:25832.",
+            f"Footprint coordinates are interpreted as EPSG:4326 lon/lat and projected to {config.working_crs}.",
             "DSM points are assigned to the building cloud only when they are at least 2 m above DTM and inside a building footprint.",
             "Optional tree DSM points require vegetation-colored overlay evidence or nearby stage-1 natural=tree tags plus a Z test. Inside or near building footprints, the Z test must be roof-relative; local DSM relief is used only outside the buffered building footprint zone.",
             "Every valid paired DSM point is classified exactly once as building, tree, or unclassified, so ground point count equals building plus tree plus unclassified point count.",
@@ -140,6 +145,21 @@ def build_alignment_diagnostics(
             "The preview preserves the same meter-scale height differences as the exported PLY files and does not exaggerate vertical scale.",
         ],
     }
+    if supplied_clouds:
+        result["dsm_classification_complete"] = None
+        result["alignment_evidence"] = "user-classified building points inside the ROI, transformed to the working CRS"
+        result["assumptions"] = [
+            "Supplied PLY files contain absolute source X/Y coordinates and compatible metre heights.",
+            "Only X/Y is transformed; Z is unchanged (exported to millimetre precision). No vertical datum conversion is performed.",
+            "Ground/building classification is supplied by the user, not inferred or verified by this stage.",
+            "Alignment uses user-classified building points; it is not independent DSM evidence.",
+            "Samples are clipped to the projected ROI bounding box; no raster classification or tree filtering is performed.",
+        ]
+    else:
+        assumptions = result["assumptions"]
+        assert isinstance(assumptions, list)
+        assumptions.append("DTM/DSM heights must use compatible metres and vertical references; no vertical datum conversion is performed.")
+    return result
 
 
 def estimate_horizontal_offset(

@@ -13,6 +13,7 @@ def render_report(
     instances: list[AirPurifierInstance], model_counts: dict[str, int],
     input_counts: dict[str, int], parameter_source_counts: dict[str, dict[str, int]], placement: Path,
     combined: Path, instance_paths: dict[str, Path], preview: Path, manifest: Path,
+    working_crs: str = "EPSG:25832",
 ) -> str:
     model_lines = report_counts(model_counts)
     input_lines = report_counts(input_counts)
@@ -29,7 +30,7 @@ def render_report(
 - Normalized features: `{source}`
 - Model catalog: `{catalog}`
 - Terrain: {terrain_text}
-- Local origin: EPSG:25832 ({origin_x:.3f}, {origin_y:.3f})
+- Local origin: {working_crs} ({origin_x:.3f}, {origin_y:.3f})
 
 ## Transformations and validation
 

@@ -46,6 +46,7 @@ class CityModelsPublicationInput:
     footprint_overlap_status: str
     region: str
     crs: str
+    local_origin: tuple[float, float]
     point_cloud_manifest_path: Path
     surface_layers: Sequence[Mapping[str, Any]]
     execution: City4CFDExecutionResult
@@ -163,6 +164,10 @@ def publish_city_models_manifest(publication: CityModelsPublicationInput) -> Sta
         details={
             "region": publication.region,
             "crs": publication.crs,
+            "local_origin": {
+                "x": publication.local_origin[0],
+                "y": publication.local_origin[1],
+            },
             "point_cloud_manifest": str(publication.point_cloud_manifest_path),
             "required_external_tool": "City4CFD with OpenFOAM-compatible dependencies",
             "surface_layers": surface_layer_details,

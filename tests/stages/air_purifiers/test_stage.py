@@ -374,6 +374,29 @@ def test_mixed_crs_planning_runs_from_stage1_through_both_model_stages(tmp_path:
         ),
         encoding="utf-8",
     )
+    purifier_utm_plan = tmp_path / "purifiers-32633.geojson"
+    purifier_utm_plan.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [198643.41497553675, 4853099.8229988525],
+                        },
+                        "properties": {
+                            "id": "AP-32633",
+                            "kind": "air_purifier",
+                            "model": "compact_octagonal_tower",
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     config_path = tmp_path / "config.toml"
     write_complete_config(
         config_path,
@@ -392,6 +415,11 @@ crs = "EPSG:4326"
 name = "web_mercator_purifiers"
 path = "{purifier_plan.as_posix()}"
 crs = "EPSG:3857"
+
+[[urban_planning.inputs]]
+name = "utm_purifiers"
+path = "{purifier_utm_plan.as_posix()}"
+crs = "EPSG:32633"
 ''',
     )
     cached_overpass = tmp_path / "overpass.json"
@@ -403,10 +431,15 @@ crs = "EPSG:3857"
     purifier_result = air_purifiers.run(config)
 
     planning = json.loads(stage1.urban_planning_path.read_text(encoding="utf-8"))["features"]
-    assert [feature["properties"]["id"] for feature in planning] == ["TREE-4326", "AP-3857"]
+    assert [feature["properties"]["id"] for feature in planning] == [
+        "TREE-4326",
+        "AP-3857",
+        "AP-32633",
+    ]
     assert {feature["properties"]["urban_planning_input_id"] for feature in planning} == {
         "portable_trees",
         "web_mercator_purifiers",
+        "utm_purifiers",
     }
     assert planning[0]["properties"]["source_properties"] == {"label": "portable tree"}
     assert planning[1]["properties"]["source_crs"] == "EPSG:3857"
@@ -436,8 +469,19 @@ crs = "EPSG:3857"
     purifier_placements = json.loads(
         purifier_result.placement_geojson_path.read_text(encoding="utf-8")
     )["features"]
-    purifier_properties = purifier_placements[0]["properties"]
-    assert purifier_result.purifier_count == 1
+    purifier_properties = next(
+        feature["properties"]
+        for feature in purifier_placements
+        if feature["properties"]["purifier_id"] == "AP-3857"
+    )
+    utm_properties = next(
+        feature["properties"]
+        for feature in purifier_placements
+        if feature["properties"]["purifier_id"] == "AP-32633"
+    )
+    assert purifier_result.purifier_count == 2
+    assert utm_properties["source_crs"] == "EPSG:32633"
+    assert utm_properties["urban_planning_input_id"] == "utm_purifiers"
     assert purifier_properties["purifier_id"] == "AP-3857"
     assert purifier_properties["urban_planning_input_id"] == "web_mercator_purifiers"
     assert purifier_properties["source_crs"] == "EPSG:3857"
@@ -590,7 +634,10 @@ def test_validates_rotated_footprint_and_stage3_manifest(tmp_path: Path) -> None
         input_state_fingerprint={"fixture": "completed-city-models"},
         artifacts=(ArtifactReference("terrain", terrain, ArtifactKind.HANDOFF),),
         metrics={},
-        details={},
+        details={"crs": config.working_crs, "local_origin": {
+            "x": config.coordinate_plan.local_origin[0],
+            "y": config.coordinate_plan.local_origin[1],
+        }},
     )
     with pytest.raises(ConfigError, match="footprint.*terrain"):
         air_purifiers.run(config, terrain_geometry_path=terrain)

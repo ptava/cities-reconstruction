@@ -5,11 +5,13 @@ from __future__ import annotations
 import math
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
 from .errors import ConfigError
+from .geometry.crs import WGS84, canonical_crs, validate_working_crs
+from .geometry.spatial_plan import SpatialPlan, prepare_config
 
 _TomlTable: TypeAlias = Mapping[str, object]
 
@@ -19,9 +21,13 @@ class RegionConfig:
     name: str
     center_lat: float
     center_lon: float
-    crs: str
     inner_diameter_m: float | None
     outer_diameter_m: float
+
+
+@dataclass(frozen=True)
+class ReconstructionConfig:
+    working_crs: str | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,11 @@ class InputConfig:
     tree_overlap_tolerance_m: float
     tree_canopy_overlay_path: Path | None
     tree_terrain_geometry_path: Path | None
+    dtm_source_crs: str | None = None
+    dsm_source_crs: str | None = None
+    ground_point_cloud_path: Path | None = None
+    building_point_cloud_path: Path | None = None
+    point_cloud_source_crs: str | None = None
 
 
 @dataclass(frozen=True)
@@ -49,7 +60,7 @@ class FeatureClassificationRule:
 class SupplementalShapefileConfig:
     name: str
     path: Path
-    crs: str
+    crs: str | None
     category: str
     group_tag: str | None
     enabled: bool
@@ -61,6 +72,7 @@ class UrbanPlanningInputConfig:
     path: Path
     crs: str
     enabled: bool
+    crs_declared: bool = True
 
 
 @dataclass(frozen=True)
@@ -169,10 +181,27 @@ class AppConfig:
     output: OutputConfig
     imagery: ImageryConfig
     city_models: CityModelsConfig
+    reconstruction: ReconstructionConfig = field(default_factory=ReconstructionConfig)
+    spatial_plan: SpatialPlan | None = None
+
+    @property
+    def coordinate_plan(self) -> SpatialPlan:
+        if self.spatial_plan is None:
+            raise ConfigError("coordinate plan is unresolved; prepare settings before running stages")
+        return self.spatial_plan
+
+    @property
+    def working_crs(self) -> str:
+        return self.coordinate_plan.working_crs
 
 
 def load_config(path: str | Path) -> AppConfig:
-    """Load and validate an application configuration file."""
+    """Convenience boundary: parse settings, then inspect and prepare coordinates."""
+    return prepare_config(load_settings(path))
+
+
+def load_settings(path: str | Path) -> AppConfig:
+    """Read and validate user settings without inspecting dataset files."""
 
     config_path = Path(path)
     if not config_path.exists():
@@ -190,6 +219,7 @@ def load_config(path: str | Path) -> AppConfig:
         raw,
         {
             "region",
+            "reconstruction",
             "inputs",
             "shapefiles",
             "urban_planning",
@@ -211,6 +241,15 @@ def load_config(path: str | Path) -> AppConfig:
     output = _parse_output(_required_table(raw, "output"), base_dir)
     imagery = _parse_imagery(_required_table(raw, "imagery"))
     city_models = _parse_city_models(_required_table(raw, "city_models"))
+    reconstruction_table = _validated_table(raw.get("reconstruction", {}), "reconstruction must be a TOML table")
+    _reject_unknown_keys(reconstruction_table, {"working_crs"}, "reconstruction")
+    requested_crs = reconstruction_table.get("working_crs")
+    if requested_crs is not None:
+        requested_crs = _required_str(reconstruction_table, "working_crs", "reconstruction")
+        if requested_crs.lower() == "auto":
+            requested_crs = None
+        else:
+            validate_working_crs(requested_crs)
 
     return validate_config(AppConfig(
         path=config_path,
@@ -223,6 +262,7 @@ def load_config(path: str | Path) -> AppConfig:
         output=output,
         imagery=imagery,
         city_models=city_models,
+        reconstruction=ReconstructionConfig(requested_crs),
     ))
 
 
@@ -230,7 +270,11 @@ def validate_config(config: AppConfig) -> AppConfig:
     """Validate an assembled config, including programmatic replacements."""
 
     validate_city_models_config(config.city_models)
+    if config.reconstruction.working_crs is not None:
+        validate_working_crs(config.reconstruction.working_crs)
     return config
+
+
 
 
 def validate_city_models_config(config: CityModelsConfig) -> CityModelsConfig:
@@ -358,15 +402,16 @@ def _require_range(name: str, value: float, minimum: float, maximum: float) -> N
 
 
 def _parse_region(table: _TomlTable) -> RegionConfig:
+    if "crs" in table:
+        raise ConfigError("region.crs was removed: ROI latitude/longitude are WGS84. Omit it for automatic selection, or move the working override to reconstruction.working_crs; declare each dataset source CRS separately.")
     _reject_unknown_keys(
         table,
-        {"name", "center_lat", "center_lon", "crs", "inner_diameter_m", "outer_diameter_m"},
+        {"name", "center_lat", "center_lon", "inner_diameter_m", "outer_diameter_m"},
         "region",
     )
     name = _required_str(table, "name", "region")
     center_lat = _required_number(table, "center_lat", "region")
     center_lon = _required_number(table, "center_lon", "region")
-    crs = _required_str(table, "crs", "region")
     inner_diameter_m = _optional_number(table, "inner_diameter_m", "region")
     outer_diameter_m = _required_number(table, "outer_diameter_m", "region")
 
@@ -380,14 +425,11 @@ def _parse_region(table: _TomlTable) -> RegionConfig:
         raise ConfigError("region.outer_diameter_m must be positive")
     if inner_diameter_m is not None and outer_diameter_m < inner_diameter_m:
         raise ConfigError("region.outer_diameter_m must be greater than or equal to inner_diameter_m")
-    if not crs:
-        raise ConfigError("region.crs must not be empty")
 
     return RegionConfig(
         name=name,
         center_lat=center_lat,
         center_lon=center_lon,
-        crs=crs,
         inner_diameter_m=inner_diameter_m,
         outer_diameter_m=outer_diameter_m,
     )
@@ -404,6 +446,11 @@ def _parse_inputs(table: _TomlTable, base_dir: Path) -> InputConfig:
             "dtm_directory",
             "dsm_directory",
             "point_cloud_path",
+            "dtm_source_crs",
+            "dsm_source_crs",
+            "ground_point_cloud_path",
+            "building_point_cloud_path",
+            "point_cloud_source_crs",
             "tree_overlap_tolerance_m",
             "tree_canopy_overlay_path",
             "tree_terrain_geometry_path",
@@ -445,7 +492,27 @@ def _parse_inputs(table: _TomlTable, base_dir: Path) -> InputConfig:
         tree_overlap_tolerance_m=tree_overlap_tolerance_m,
         tree_canopy_overlay_path=_optional_path(table, "tree_canopy_overlay_path", "inputs", base_dir),
         tree_terrain_geometry_path=_optional_path(table, "tree_terrain_geometry_path", "inputs", base_dir),
+        dtm_source_crs=_optional_crs(table, "dtm_source_crs", "inputs"),
+        dsm_source_crs=_optional_crs(table, "dsm_source_crs", "inputs"),
+        ground_point_cloud_path=_optional_path(table, "ground_point_cloud_path", "inputs", base_dir),
+        building_point_cloud_path=_optional_path(table, "building_point_cloud_path", "inputs", base_dir),
+        point_cloud_source_crs=_optional_crs(table, "point_cloud_source_crs", "inputs"),
     )
+
+
+def _optional_crs(table: _TomlTable, key: str, section: str) -> str | None:
+    if key not in table:
+        return None
+    try:
+        return canonical_crs(_required_str(table, key, section))
+    except ConfigError as exc:
+        raise ConfigError(f"{section}.{key}: {exc}") from exc
+
+
+def _source_crs_entry(table: _TomlTable, section: str) -> str | None:
+    if "crs" in table and "source_crs" in table:
+        raise ConfigError(f"{section}: specify only source_crs, not both source_crs and its legacy crs alias")
+    return _optional_crs(table, "source_crs" if "source_crs" in table else "crs", section)
 
 
 def _parse_shapefiles(table: _TomlTable, base_dir: Path) -> ShapefilesConfig:
@@ -568,7 +635,6 @@ def _parse_supplemental_shapefiles(
         "trees",
         "other_terrain",
     }
-    supported_crs = {"EPSG:4326", "EPSG:25832", "EPSG:3003"}
     inputs: list[SupplementalShapefileConfig] = []
     names: set[str] = set()
     for index, raw_input in enumerate(raw_inputs, start=1):
@@ -576,7 +642,7 @@ def _parse_supplemental_shapefiles(
         raw_input = _validated_table(raw_input, f"{section} must be a TOML table")
         _reject_unknown_keys(
             raw_input,
-            {"name", "path", "crs", "category", "group_tag", "enabled"},
+            {"name", "path", "crs", "source_crs", "category", "group_tag", "enabled"},
             section,
         )
         name = _required_str(raw_input, "name", section)
@@ -587,10 +653,8 @@ def _parse_supplemental_shapefiles(
         if category not in supported_categories:
             allowed = ", ".join(sorted(supported_categories))
             raise ConfigError(f"{section}.category must be one of: {allowed}")
-        crs = _required_str(raw_input, "crs", section).upper()
-        if crs not in supported_crs:
-            raise ConfigError(f"{section}.crs must be one of: {', '.join(sorted(supported_crs))}")
         path = _required_path(raw_input, "path", section, base_dir)
+        crs = _source_crs_entry(raw_input, section)
         if path.suffix.lower() != ".shp":
             raise ConfigError(f"{section}.path must point to an ESRI .shp file")
         if category == "trees":
@@ -623,13 +687,12 @@ def _parse_urban_planning(raw_table: object, base_dir: Path) -> UrbanPlanningCon
     raw_inputs = table.get("inputs", [])
     if not isinstance(raw_inputs, list):
         raise ConfigError("urban_planning.inputs must be a list of input tables")
-    supported_crs = {"EPSG:4326", "EPSG:3857"}
     inputs: list[UrbanPlanningInputConfig] = []
     names: set[str] = set()
     for index, raw_input in enumerate(raw_inputs, start=1):
         section = f"urban_planning.inputs[{index}]"
         raw_input = _validated_table(raw_input, f"{section} must be a TOML table")
-        _reject_unknown_keys(raw_input, {"name", "path", "crs", "enabled"}, section)
+        _reject_unknown_keys(raw_input, {"name", "path", "crs", "source_crs", "enabled"}, section)
         name = _required_str(raw_input, "name", section)
         if name in names:
             raise ConfigError(f"urban_planning.inputs contains duplicate name: {name}")
@@ -637,9 +700,8 @@ def _parse_urban_planning(raw_table: object, base_dir: Path) -> UrbanPlanningCon
         path = _required_path(raw_input, "path", section, base_dir)
         if path.suffix.lower() != ".geojson":
             raise ConfigError(f"{section}.path must point to a .geojson file")
-        crs = raw_input.get("crs", "EPSG:4326")
-        if not isinstance(crs, str) or crs.upper() not in supported_crs:
-            raise ConfigError(f"{section}.crs must be one of: {', '.join(sorted(supported_crs))}")
+        declared_crs = _source_crs_entry(raw_input, section)
+        crs = declared_crs or WGS84
         enabled = raw_input.get("enabled", True)
         if not isinstance(enabled, bool):
             raise ConfigError(f"{section}.enabled must be a boolean")
@@ -647,8 +709,9 @@ def _parse_urban_planning(raw_table: object, base_dir: Path) -> UrbanPlanningCon
             UrbanPlanningInputConfig(
                 name=name,
                 path=path,
-                crs=crs.upper(),
+                crs=crs,
                 enabled=enabled,
+                crs_declared=declared_crs is not None,
             )
         )
     return UrbanPlanningConfig(tuple(inputs))
@@ -736,7 +799,7 @@ def _parse_imagery(table: _TomlTable) -> ImageryConfig:
         if width <= 0 or height <= 0:
             raise ConfigError(f"{section}.width and {section}.height must be positive")
         crs = _required_str(source, "crs", section)
-        if crs.upper() != "EPSG:4326":
+        if crs.upper() != WGS84:
             raise ConfigError(f"{section}.crs currently supports only EPSG:4326")
         image_format = _required_str(source, "format", section)
         style = source.get("style", "")

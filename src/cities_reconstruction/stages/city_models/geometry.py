@@ -14,6 +14,7 @@ from shapely.validation import make_valid
 
 from cities_reconstruction.adapters.city4cfd import City4CFDExecutionResult
 from cities_reconstruction.config import ConfigError
+from cities_reconstruction.geometry.crs import lonlat_to_epsg25832, project_lonlat  # noqa: F401
 
 DEFAULT_BUILDING_HEIGHT_M = 9.0
 DEFAULT_ROOF_RAISE_M = 1.5
@@ -28,7 +29,7 @@ def project_surface_layer_feature(
     target_crs: str,
     source_path: Path,
 ) -> dict[str, Any]:
-    """Project one stage-1 EPSG:4326 polygon into EPSG:25832."""
+    """Project one stage-1 EPSG:4326 polygon into the requested working CRS."""
 
     projected = dict(feature)
     geometry = dict(feature["geometry"])
@@ -42,7 +43,7 @@ def project_surface_layer_feature(
                 raise ConfigError(
                     f"stage-1 surface coordinates must be EPSG:4326 lon/lat before projection: {source_path}"
                 )
-            x, y = lonlat_to_epsg25832(lon, lat)
+            x, y = project_lonlat(lon, lat, target_crs)
             projected_ring.append([x, y])
         return projected_ring
 
@@ -182,45 +183,6 @@ def validate_successful_city4cfd_geometry(
             f"City4CFD {execution.status} reported success but required generated geometry "
             f"is missing or empty: {rendered_paths}"
         )
-
-
-def lonlat_to_epsg25832(lon: float, lat: float) -> tuple[float, float]:
-    """Convert WGS84 longitude/latitude to the stage-local EPSG:25832 plane."""
-
-    semi_major = 6378137.0
-    flattening = 1 / 298.257223563
-    eccentricity_sq = flattening * (2 - flattening)
-    lat_rad = math.radians(lat)
-    lon_rad = math.radians(lon)
-    lon0 = math.radians(9.0)
-    k0 = 0.9996
-    false_easting = 500000.0
-
-    n = semi_major / math.sqrt(1 - eccentricity_sq * math.sin(lat_rad) ** 2)
-    t = math.tan(lat_rad) ** 2
-    c = (eccentricity_sq / (1 - eccentricity_sq)) * math.cos(lat_rad) ** 2
-    a = (lon_rad - lon0) * math.cos(lat_rad)
-    m = semi_major * (
-        (1 - eccentricity_sq / 4 - 3 * eccentricity_sq**2 / 64 - 5 * eccentricity_sq**3 / 256) * lat_rad
-        - (3 * eccentricity_sq / 8 + 3 * eccentricity_sq**2 / 32 + 45 * eccentricity_sq**3 / 1024)
-        * math.sin(2 * lat_rad)
-        + (15 * eccentricity_sq**2 / 256 + 45 * eccentricity_sq**3 / 1024) * math.sin(4 * lat_rad)
-        - (35 * eccentricity_sq**3 / 3072) * math.sin(6 * lat_rad)
-    )
-    easting = false_easting + k0 * n * (
-        a + (1 - t + c) * a**3 / 6 + (5 - 18 * t + t**2 + 72 * c - 58 * eccentricity_sq) * a**5 / 120
-    )
-    northing = k0 * (
-        m
-        + n
-        * math.tan(lat_rad)
-        * (
-            a**2 / 2
-            + (5 - t + 9 * c + 4 * c**2) * a**4 / 24
-            + (61 - 58 * t + t**2 + 600 * c - 330 * eccentricity_sq) * a**6 / 720
-        )
-    )
-    return easting, northing
 
 
 def _feature_polygons(feature: dict[str, Any]) -> list[Polygon]:

@@ -195,7 +195,7 @@ def build_summary(
             "name": config.region.name,
             "center_lat": config.region.center_lat,
             "center_lon": config.region.center_lon,
-            "crs": config.region.crs,
+            "crs": config.working_crs,
             "inner_diameter_m": config.region.inner_diameter_m,
             "outer_diameter_m": config.region.outer_diameter_m,
         },

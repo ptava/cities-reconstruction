@@ -850,6 +850,7 @@ def _polygon(
 
 
 def _write_grid(path: Path, center_x: float, center_y: float, elevated: bool) -> None:
+    path.with_suffix(".prj").write_text("EPSG:25832")
     values = []
     for row in range(5):
         row_values = []
@@ -875,6 +876,7 @@ def _write_grid(path: Path, center_x: float, center_y: float, elevated: bool) ->
 
 
 def _write_flat_grid(path: Path, center_x: float, center_y: float, value: float) -> None:
+    path.with_suffix(".prj").write_text("EPSG:25832")
     rows = [" ".join(str(value) for _col in range(5)) for _row in range(5)]
     path.write_text(
         "\n".join(
@@ -894,6 +896,7 @@ def _write_flat_grid(path: Path, center_x: float, center_y: float, value: float)
 
 
 def _write_roof_with_tree_peak_grid(path: Path, center_x: float, center_y: float) -> None:
+    path.with_suffix(".prj").write_text("EPSG:25832")
     rows = []
     for row in range(5):
         values = []
@@ -918,6 +921,7 @@ def _write_roof_with_tree_peak_grid(path: Path, center_x: float, center_y: float
 
 
 def _write_single_peak_grid(path: Path, center_x: float, center_y: float) -> None:
+    path.with_suffix(".prj").write_text("EPSG:25832")
     rows = []
     for row in range(5):
         values = ["15" if row == 2 and col == 2 else "10" for col in range(5)]

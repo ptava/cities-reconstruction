@@ -11,6 +11,7 @@ from .config import (
     SupplementalShapefileConfig,
     validate_config,
 )
+from .geometry.spatial_plan import prepare_config, verify_spatial_plan
 from .stage_contract import StageOutput
 from .stages import (
     air_purifiers,
@@ -66,13 +67,26 @@ class StageRunOptions:
 StageRunner = Callable[[AppConfig, StageRunOptions], StageOutput]
 
 
+def prepare_run_config(config: AppConfig, options: StageRunOptions) -> AppConfig:
+    """Apply coordinate-relevant CLI overrides before inspecting input evidence."""
+    config = _apply_shapefile_input_overrides(config, options)
+    if options.tree_canopy_overlay is not None:
+        config = replace(config, inputs=replace(
+            config.inputs, tree_canopy_overlay_path=options.tree_canopy_overlay,
+        ))
+    return prepare_config(config)
+
+
 def run_shapefiles(
     config: AppConfig,
     options: StageRunOptions,
 ) -> StageOutput:
     """Run the shapefiles stage with CLI overrides applied."""
 
-    config = _apply_shapefile_input_overrides(config, options)
+    verify_spatial_plan(config)
+    overridden = _apply_shapefile_input_overrides(config, options)
+    if overridden.shapefiles != config.shapefiles:
+        config = prepare_config(overridden)
     return shapefiles.run(config, overpass_json_path=options.overpass_json)
 
 
@@ -202,15 +216,16 @@ def _apply_shapefile_input_overrides(
             if existing is None:
                 continue
             path = existing.path
+            declaration = crs or existing.crs
         elif not path.is_absolute():
             path = (config.path.parent / path).resolve()
+            declaration = crs
+        else:
+            declaration = crs
         surface = SupplementalShapefileConfig(
             name=name,
             path=path,
-            crs=(
-                crs
-                or (existing.crs if existing is not None else config.region.crs)
-            ).upper(),
+            crs=declaration,
             category=category,
             group_tag=group_tag,
             enabled=True,

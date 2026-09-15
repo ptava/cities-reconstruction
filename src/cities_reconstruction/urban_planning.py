@@ -10,10 +10,16 @@ from pathlib import Path
 from typing import Literal, NotRequired, TypedDict, TypeGuard, cast
 
 from cities_reconstruction.config import AppConfig, ConfigError
+from cities_reconstruction.geometry.crs import (
+    EARTH_RADIUS_M,
+    WEB_MERCATOR,
+    WEB_MERCATOR_LIMIT_M,
+    WGS84,
+    crs_equal,
+    transform_xy,
+    web_mercator_to_lonlat,
+)
 
-WEB_MERCATOR_RADIUS_M = 6_378_137.0
-WEB_MERCATOR_LIMIT_M = math.pi * WEB_MERCATOR_RADIUS_M
-EARTH_RADIUS_M = 6_371_000.0
 SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 KINDS = frozenset({"tree", "air_purifier"})
 MODELLING_PROPERTIES_BY_KIND = {
@@ -253,8 +259,13 @@ def _point_coordinates(geometry: object, source_crs: str, context: str) -> tuple
     first, second = float(first_value), float(second_value)
     if not math.isfinite(first) or not math.isfinite(second):
         raise ConfigError(f"{context} Point coordinates must be finite numbers")
-    if source_crs == "EPSG:3857":
+    if source_crs == WEB_MERCATOR:
         return _inverse_web_mercator(first, second, context)
+    if not crs_equal(source_crs, WGS84):
+        try:
+            first, second = transform_xy(first, second, source_crs, WGS84)
+        except ConfigError as exc:
+            raise ConfigError(f"{context}: {exc}") from exc
     if not -180.0 <= first <= 180.0:
         raise ConfigError(f"{context} longitude must be between -180 and 180")
     if not -90.0 <= second <= 90.0:
@@ -265,8 +276,9 @@ def _point_coordinates(geometry: object, source_crs: str, context: str) -> tuple
 def _inverse_web_mercator(x: float, y: float, context: str) -> tuple[float, float]:
     if abs(x) > WEB_MERCATOR_LIMIT_M or abs(y) > WEB_MERCATOR_LIMIT_M:
         raise ConfigError(f"{context} EPSG:3857 coordinates exceed Web Mercator bounds")
-    lon = math.degrees(x / WEB_MERCATOR_RADIUS_M)
-    lat = math.degrees(2.0 * math.atan(math.exp(y / WEB_MERCATOR_RADIUS_M)) - math.pi / 2.0)
+    if not math.isfinite(x) or not math.isfinite(y):
+        raise ConfigError(f"{context} EPSG:3857 coordinates do not transform to finite longitude/latitude")
+    lon, lat = web_mercator_to_lonlat(x, y)
     if not math.isfinite(lon) or not math.isfinite(lat):
         raise ConfigError(f"{context} EPSG:3857 coordinates do not transform to finite longitude/latitude")
     return lon, lat

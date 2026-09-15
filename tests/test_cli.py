@@ -98,6 +98,16 @@ def test_validate_config_command(capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "Configuration is valid" in captured.out
+    assert "ROI: WGS84 latitude/longitude" in captured.out
+    assert "selected from terrain raster source CRS" in captured.out
+
+
+def test_validate_config_json_exposes_coordinate_evidence(tmp_path: Path, capsys) -> None:
+    path = write_complete_config(tmp_path / "config.toml", crs=None)
+    assert main(["validate-config", "--config", str(path), "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["coordinate_plan"]["working_crs"] == "EPSG:32632"
+    assert result["coordinate_plan"]["input_mode"] == "no_elevation"
 
 
 def test_dry_run_json_command(capsys) -> None:
@@ -183,7 +193,9 @@ def test_run_stage_json_emits_shared_manifest_mapping(tmp_path: Path, monkeypatc
     exit_code = main(["run-stage", "--config", str(config_path), "city-models", "--json"])
 
     assert exit_code == 0
-    assert json.loads(capsys.readouterr().out) == result.to_dict()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload.pop("coordinate_plan")["working_crs"] == "EPSG:25832"
+    assert payload == result.to_dict()
 
 
 def test_run_stage_dispatches_runner_owned_by_registry(
@@ -212,7 +224,9 @@ def test_run_stage_dispatches_runner_owned_by_registry(
 
     assert exit_code == 0
     assert received_options == [StageRunOptions()]
-    assert json.loads(capsys.readouterr().out) == result.to_dict()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload.pop("coordinate_plan")["working_crs"] == "EPSG:25832"
+    assert payload == result.to_dict()
 
 
 def test_pipeline_run_executes_default_chain_and_prints_plan_first(
@@ -446,7 +460,6 @@ def test_incomplete_config_returns_configuration_error(tmp_path: Path, capsys) -
 name = "Incomplete"
 center_lat = 43.7696
 center_lon = 11.2558
-crs = "EPSG:25832"
 inner_diameter_m = 200.0
 outer_diameter_m = 400.0
 
@@ -508,7 +521,9 @@ def test_run_stage_shapefiles_with_cached_overpass_json(tmp_path: Path, monkeypa
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured_paths == [raw_path]
-    assert json.loads(captured.out) == result.to_dict()
+    payload = json.loads(captured.out)
+    assert payload.pop("coordinate_plan")["working_crs"] == "EPSG:25832"
+    assert payload == result.to_dict()
 
 
 def test_run_stage_keeps_common_and_owned_options_position_independent(
@@ -545,7 +560,9 @@ def test_run_stage_keeps_common_and_owned_options_position_independent(
 
     assert exit_code == 0
     assert captured_paths == [raw_path]
-    assert json.loads(capsys.readouterr().out) == result.to_dict()
+    payload = json.loads(capsys.readouterr().out)
+    assert payload.pop("coordinate_plan")["working_crs"] == "EPSG:25832"
+    assert payload == result.to_dict()
 
 
 def test_run_stage_shapefiles_accepts_supplemental_shapefile_overrides(
@@ -653,7 +670,9 @@ def test_run_stage_visual_enrichment_with_segmentation_geojson(tmp_path: Path, m
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured_paths == {"segmentation": segmentation_path, "sat2lod2": sat2lod2_path}
-    assert json.loads(captured.out) == result.to_dict()
+    payload = json.loads(captured.out)
+    assert payload.pop("coordinate_plan")["working_crs"] == "EPSG:25832"
+    assert payload == result.to_dict()
 
 
 def test_run_stage_point_cloud_accepts_tree_overlay_argument(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -690,7 +709,9 @@ def test_run_stage_point_cloud_accepts_tree_overlay_argument(tmp_path: Path, mon
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured_configs[0].inputs.tree_canopy_overlay_path == overlay_path
-    assert json.loads(captured.out) == result.to_dict()
+    payload = json.loads(captured.out)
+    assert payload.pop("coordinate_plan")["working_crs"] == "EPSG:25832"
+    assert payload == result.to_dict()
 
 
 def test_run_stage_point_cloud_resolves_explicit_footprints_from_config_directory(
@@ -809,7 +830,9 @@ def test_run_stage_trees_json(tmp_path: Path, monkeypatch, capsys) -> None:
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert json.loads(captured.out) == result.to_dict()
+    payload = json.loads(captured.out)
+    assert payload.pop("coordinate_plan")["working_crs"] == "EPSG:25832"
+    assert payload == result.to_dict()
 
 
 def test_run_stage_trees_accepts_terrain_geometry_override(tmp_path: Path, monkeypatch, capsys) -> None:

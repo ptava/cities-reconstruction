@@ -28,12 +28,16 @@ def render_report(
     tree_output = f"- Tree point cloud: `{tree_path}`\n" if tree_path is not None else ""
     tree_filter = diagnostics["tree_filter"]
     tree_filter_status = "enabled" if tree_filter["enabled"] else "disabled"
+    classification = diagnostics["dsm_classification_complete"]
+    if classification is None:
+        classification = "not applicable (supplied clouds)"
     return f"""# Point Cloud Preparation Report
 
 ## Region
 
 - Name: {config.region.name}
-- CRS: {config.region.crs}
+- CRS: {config.working_crs}
+- Input mode: {diagnostics.get("input_mode", "rasters")}
 - Alignment status: {diagnostics["alignment_status"]}
 - Message: {diagnostics["message"]}
 
@@ -43,7 +47,7 @@ def render_report(
 - Building points: {diagnostics["building_point_count"]}
 - Tree points: {diagnostics["tree_point_count"]}
 - Unclassified DSM points: {diagnostics["unclassified_point_count"]}
-- DSM classification complete: {diagnostics["dsm_classification_complete"]}
+- DSM classification complete: {classification}
 - Building footprints: {diagnostics["footprint_polygon_count"]}
 - Estimated horizontal shift: {diagnostics["estimated_horizontal_shift_m"]} m
 - Tree filter: {tree_filter_status}

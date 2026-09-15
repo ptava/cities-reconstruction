@@ -9,8 +9,12 @@ from shapely.geometry import MultiPolygon, Polygon
 from shapely.validation import make_valid
 
 from cities_reconstruction.config import AppConfig
+from cities_reconstruction.geometry.crs import (
+    EARTH_RADIUS_M,
+    local_xy_to_lonlat,
+    lonlat_to_local_xy,
+)
 
-EARTH_RADIUS_M = 6_371_000.0
 ROI_FILL_SEGMENTS = 256
 
 FEATURE_LIKE_INVENTORY_KEYS = frozenset(
@@ -486,13 +490,12 @@ def _line_distance_to_center_m(coordinates: list[list[float]], config: AppConfig
 
 def _project_coordinate_m(coordinate: list[float], config: AppConfig) -> tuple[float, float]:
     lon, lat = coordinate
-    x_m = (
-        math.radians(lon - config.region.center_lon)
-        * EARTH_RADIUS_M
-        * math.cos(math.radians(config.region.center_lat))
+    return lonlat_to_local_xy(
+        lon,
+        lat,
+        center_lon=config.region.center_lon,
+        center_lat=config.region.center_lat,
     )
-    y_m = math.radians(lat - config.region.center_lat) * EARTH_RADIUS_M
-    return x_m, y_m
 
 
 def _point_norm_m(point: tuple[float, float]) -> float:
@@ -602,8 +605,10 @@ def _polygon_m_to_lonlat_coordinates(
 
 
 def _local_m_to_lonlat(x_m: float, y_m: float, config: AppConfig) -> list[float]:
-    lon = config.region.center_lon + math.degrees(
-        x_m / (EARTH_RADIUS_M * math.cos(math.radians(config.region.center_lat)))
+    lon, lat = local_xy_to_lonlat(
+        x_m,
+        y_m,
+        center_lon=config.region.center_lon,
+        center_lat=config.region.center_lat,
     )
-    lat = config.region.center_lat + math.degrees(y_m / EARTH_RADIUS_M)
     return [lon, lat]

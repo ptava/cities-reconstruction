@@ -12,6 +12,7 @@ authors = [
   { name = "cities-reconstruction contributors" },
 ]
 dependencies = [
+    "pyproj>=3.7",
     "shapely>=2.1.2",
 ]
 
@@ -45,6 +46,9 @@ include = [
   "pyproject.toml",
   "src/cities_reconstruction/**/*.py",
   "tests/test_cli.py",
+  "tests/test_crs_characterization.py",
+  "tests/test_dataset_crs.py",
+  "tests/stages/point_cloud/test_supplied_clouds.py",
   "tests/test_pipeline.py",
   "tests/test_pipeline_execution.py",
   "tests/stages/shapefiles/test_diagnostics.py",

@@ -259,6 +259,17 @@ def test_city_models_rejects_failed_point_cloud_manifest(tmp_path: Path) -> None
         city_models.run(load_config(config_path), executor=FakeExecutor(_execution_result()))
 
 
+def test_city_models_rejects_point_cloud_manifest_from_different_working_crs(tmp_path: Path) -> None:
+    config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
+    manifest_path = config_path.parent / "outputs" / "03_point_cloud" / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["details"]["crs"] = "EPSG:32633"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="point-cloud.*CRS.*rerun"):
+        city_models.run(load_config(config_path), executor=FakeExecutor(_execution_result()))
+
+
 def test_city_models_rejects_malformed_point_cloud_manifest(tmp_path: Path) -> None:
     config_path = _prepare_point_cloud_fixture(tmp_path, alignment_status="passed")
     manifest_path = config_path.parent / "outputs" / "03_point_cloud" / "manifest.json"

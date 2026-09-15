@@ -53,7 +53,7 @@ def render_report(
     return f"""# Tree Model Generation Report
 
 Region: {config.region.name}
-CRS: {config.region.crs}
+CRS: {config.working_crs}
 
 ## Summary
 
@@ -93,7 +93,7 @@ CRS: {config.region.crs}
 ## Assumptions
 
 - Tree ground elevation defaults to z=0 when no terrain geometry is provided.
-- Tree STL surfaces are translated to the same local projected origin used by the City4CFD handoff, while the placement GeoJSON remains in EPSG:25832.
+- Tree STL surfaces are translated to the same local projected origin used by the City4CFD handoff, while the placement GeoJSON remains in {config.working_crs}.
 - When a terrain geometry file is provided, tree bases are projected onto that terrain and placed just below the local surface.
 - Trees with species tags must resolve through the configured species/category mapping.
 - Trees without species tags use the configured fallback species ({config.trees.default}) through the same species/category mapping.

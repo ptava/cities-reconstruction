@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from cities_reconstruction.config import ConfigError
+from cities_reconstruction.geometry.crs import (
+    EPSG_25832,
+    canonical_crs,
+    lonlat_to_epsg25832,  # noqa: F401
+    project_lonlat,
+)
 from cities_reconstruction.geometry.terrain import TerrainSampler
 from cities_reconstruction.stages.air_purifiers.inputs import (
     finite_number,
@@ -25,6 +31,7 @@ TERRAIN_CLEARANCE_M = 0.05
 def resolve_instances(
     features: list[Any], models: dict[str, AirPurifierModel], *, origin_x: float, origin_y: float,
     terrain_path: Path | None, terrain_sampler: TerrainSampler | None,
+    working_crs: str = EPSG_25832,
 ) -> list[AirPurifierInstance]:
     instances: list[AirPurifierInstance] = []
     seen: set[str] = set()
@@ -60,7 +67,7 @@ def resolve_instances(
             rotation, rotation_source = 0.0, f"default:{model.name}"
         else:
             rotation, rotation_source = finite_number(raw_rotation, f"rotation_deg for {purifier_id}") % 360.0, "attribute:ROTATION_D"
-        projected_x, projected_y = lonlat_to_epsg25832(lon, lat)
+        projected_x, projected_y = project_lonlat(lon, lat, working_crs)
         local_x, local_y = projected_x - origin_x, projected_y - origin_y
         metadata_context = f"air-purifier feature {purifier_id!r}"
         input_id = required_text(properties, "urban_planning_input_id", metadata_context)
@@ -71,12 +78,7 @@ def resolve_instances(
             metadata_context,
         )
         source = required_text(properties, "source", metadata_context)
-        source_crs = required_choice(
-            properties,
-            "source_crs",
-            ("EPSG:4326", "EPSG:3857"),
-            metadata_context,
-        )
+        source_crs = canonical_crs(required_text(properties, "source_crs", metadata_context))
         source_feature_index = non_negative_integer(
             properties.get("source_feature_index"),
             f"{metadata_context} source_feature_index",
@@ -114,24 +116,3 @@ def resolve_instances(
             source_properties=dict(source_properties),
         ))
     return instances
-
-
-def lonlat_to_epsg25832(lon: float, lat: float) -> tuple[float, float]:
-    semi_major = 6378137.0
-    flattening = 1 / 298.257223563
-    eccentricity_sq = flattening * (2 - flattening)
-    lat_rad, lon_rad = math.radians(lat), math.radians(lon)
-    lon0, k0, false_easting = math.radians(9.0), 0.9996, 500000.0
-    n = semi_major / math.sqrt(1 - eccentricity_sq * math.sin(lat_rad) ** 2)
-    t = math.tan(lat_rad) ** 2
-    c = (eccentricity_sq / (1 - eccentricity_sq)) * math.cos(lat_rad) ** 2
-    a = (lon_rad - lon0) * math.cos(lat_rad)
-    m = semi_major * (
-        (1 - eccentricity_sq / 4 - 3 * eccentricity_sq**2 / 64 - 5 * eccentricity_sq**3 / 256) * lat_rad
-        - (3 * eccentricity_sq / 8 + 3 * eccentricity_sq**2 / 32 + 45 * eccentricity_sq**3 / 1024) * math.sin(2 * lat_rad)
-        + (15 * eccentricity_sq**2 / 256 + 45 * eccentricity_sq**3 / 1024) * math.sin(4 * lat_rad)
-        - (35 * eccentricity_sq**3 / 3072) * math.sin(6 * lat_rad)
-    )
-    easting = false_easting + k0 * n * (a + (1 - t + c) * a**3 / 6 + (5 - 18*t + t*t + 72*c - 58*eccentricity_sq) * a**5 / 120)
-    northing = k0 * (m + n * math.tan(lat_rad) * (a*a/2 + (5 - t + 9*c + 4*c*c) * a**4/24 + (61 - 58*t + t*t + 600*c - 330*eccentricity_sq) * a**6/720))
-    return easting, northing

@@ -11,6 +11,8 @@ from cities_reconstruction.artifacts import (
     stage_output_lock,
 )
 from cities_reconstruction.config import AppConfig, ConfigError
+from cities_reconstruction.geometry.crs import project_lonlat, validate_working_crs
+from cities_reconstruction.geometry.spatial_plan import verify_spatial_plan
 from cities_reconstruction.geometry.stl_regions import (
     REGION_NAMES,
     RegionMesh,
@@ -38,7 +40,7 @@ from cities_reconstruction.stages.air_purifiers import publication as air_purifi
 from cities_reconstruction.stages.air_purifiers import reporting as air_purifiers_reporting
 from cities_reconstruction.stages.air_purifiers.diagnostics import counts as _counts
 from cities_reconstruction.stages.air_purifiers.geometry import (
-    lonlat_to_epsg25832 as _lonlat_to_epsg25832,
+    lonlat_to_epsg25832 as _lonlat_to_epsg25832,  # noqa: F401
 )
 from cities_reconstruction.stages.air_purifiers.geometry import (
     resolve_instances as _resolve_instances,
@@ -130,6 +132,7 @@ def run(
     model_library_path: Path | str | None = None,
     terrain_geometry_path: Path | str | None = None,
 ) -> AirPurifiersStageOutput:
+    verify_spatial_plan(config)
     output_dir = stage_output_directory(config.output.root_directory, STAGE_ID)
     instances_dir = output_dir / "surfaces" / "instances"
     with stage_output_lock(output_dir, STAGE_ID.value):
@@ -141,8 +144,7 @@ def run(
             output_dir,
             legacy_names=("air_purifier_models_manifest.json",),
         )
-        if config.region.crs != "EPSG:25832":
-            raise ConfigError("air-purifier generation currently supports EPSG:25832 output coordinates")
+        validate_working_crs(config.working_crs)
         return _run_locked(
             config,
             model_library_path=_effective_path(config, model_library_path, config.air_purifiers.model_library_path),
@@ -180,10 +182,15 @@ def _run_locked(
     combined_path = surfaces_dir / "air_purifiers_combined.stl"
     models = _load_model_library(model_library_path)
     features = _load_features(source_geojson)
-    origin_x, origin_y = _lonlat_to_epsg25832(config.region.center_lon, config.region.center_lat)
+    origin_x, origin_y = project_lonlat(config.region.center_lon, config.region.center_lat, config.working_crs)
     terrain_sampler: TerrainSampler | None = None
     if terrain_geometry_path is not None:
-        validate_completed_city_models_terrain(config, terrain_geometry_path, context="air-purifier")
+        validate_completed_city_models_terrain(
+            config,
+            terrain_geometry_path,
+            context="air-purifier",
+            expected_working_crs=config.working_crs,
+        )
         terrain_sampler = load_terrain_sampler(
             terrain_geometry_path,
             footprint_label="air-purifier footprint",
@@ -195,6 +202,7 @@ def _run_locked(
         origin_y=origin_y,
         terrain_path=terrain_geometry_path,
         terrain_sampler=terrain_sampler,
+        working_crs=config.working_crs,
     )
 
     aggregate: RegionMesh = {region: [] for region in REGION_NAMES}
@@ -225,14 +233,21 @@ def _run_locked(
         field: _counts(getattr(instance, field) for instance in instances)
         for field in ("height_source", "width_source", "depth_source", "rotation_source")
     }
-    atomic_write_json(placement_path, air_purifiers_publication.placement_payload(instances))
-    atomic_write_text(preview_path, _render_preview(instances, instance_meshes, origin_x, origin_y))
+    atomic_write_json(
+        placement_path,
+        air_purifiers_publication.placement_payload(instances, config.working_crs),
+    )
+    atomic_write_text(
+        preview_path,
+        _render_preview(instances, instance_meshes, origin_x, origin_y, config.working_crs),
+    )
     atomic_write_text(
         report_path,
         air_purifiers_reporting.render_report(
             source_geojson, model_library_path, terrain_geometry_path, origin_x, origin_y,
             instances, model_counts, input_counts, parameter_source_counts,
             placement_path, combined_path, instance_paths, preview_path, manifest_path,
+            config.working_crs,
         ),
     )
     manifest = air_purifiers_publication.publish_air_purifiers_manifest(

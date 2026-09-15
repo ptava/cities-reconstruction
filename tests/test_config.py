@@ -23,7 +23,7 @@ def test_loads_complete_config_fixture(tmp_path: Path) -> None:
     config = load_config(write_complete_config(tmp_path / "config.toml"))
 
     assert config.region.name == "Fixture"
-    assert config.region.crs == "EPSG:25832"
+    assert config.working_crs == "EPSG:25832"
     assert config.region.inner_diameter_m == 200.0
     assert config.region.outer_diameter_m == 400.0
     assert config.trees.default == "Tilia"
@@ -456,7 +456,6 @@ def test_rejects_outer_diameter_smaller_than_inner_diameter(tmp_path: Path) -> N
 name = "Invalid"
 center_lat = 43.0
 center_lon = 11.0
-crs = "EPSG:25832"
 inner_diameter_m = 500.0
 outer_diameter_m = 300.0
 
@@ -639,19 +638,19 @@ group_tag = "purifier"
 [[shapefiles.supplemental]]
 name = "unsupported"
 path = "data.shp"
-crs = "EPSG:3857"
+crs = "EPSG:0"
 category = "trees"
 ''',
-            r"supplemental\[1\]\.crs must be one of",
+            r"supplemental\[1\]\.crs: invalid horizontal CRS",
         ),
         (
             '''
 [[urban_planning.inputs]]
 name = "unsupported"
 path = "plan.geojson"
-crs = "EPSG:3003"
+crs = "EPSG:0"
 ''',
-            r"urban_planning\.inputs\[1\]\.crs must be one of",
+            r"urban_planning\.inputs\[1\]\.crs: invalid horizontal CRS",
         ),
         (
             '''
@@ -1091,7 +1090,6 @@ def test_rejects_missing_required_inputs_table(tmp_path: Path) -> None:
 name = "Invalid"
 center_lat = 43.0
 center_lon = 11.0
-crs = "EPSG:25832"
 inner_diameter_m = 300.0
 outer_diameter_m = 500.0
 

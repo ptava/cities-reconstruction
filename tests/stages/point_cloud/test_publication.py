@@ -65,6 +65,8 @@ def test_publish_point_cloud_manifest_preserves_artifact_contract(tmp_path: Path
         "source_building_footprints": str(tmp_path / "source_buildings.geojson"),
         "crs": "EPSG:25832",
         "tree_filter": {"enabled": True, "tree_point_count": 3},
+        "input_mode": "rasters",
+        "source_evidence": {},
     }
     assert [(artifact.name, artifact.kind, artifact.required) for artifact in manifest.artifacts] == [
         ("projected-building-footprints", ArtifactKind.HANDOFF, True),

@@ -69,6 +69,7 @@ def _publication(
         footprint_overlap_status="warning",
         region="Florence",
         crs="EPSG:25832",
+        local_origin=(681557.2487172568, 4848756.385454708),
         point_cloud_manifest_path=tmp_path / "03_point_cloud" / "manifest.json",
         surface_layers=(
             {
@@ -112,6 +113,10 @@ def test_publish_city_models_manifest_preserves_successful_split_output_contract
         "building_count": 2,
         "alignment_status": "passed",
         "footprint_overlap_status": "warning",
+    }
+    assert manifest.details["local_origin"] == {
+        "x": 681557.2487172568,
+        "y": 4848756.385454708,
     }
     assert [(artifact.name, artifact.kind, artifact.required) for artifact in manifest.artifacts] == [
         ("city4cfd-config", ArtifactKind.SUPPORTING, True),

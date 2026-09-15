@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import math
 from html import escape
 from pathlib import Path
 from typing import Any
 
 from cities_reconstruction.config import AppConfig
-
-EARTH_RADIUS_M = 6_371_000.0
+from cities_reconstruction.geometry.crs import lonlat_to_local_xy
 
 CATEGORY_STYLES = {
     "buildings": {"label": "Buildings", "color": "#b45f3c", "opacity": "0.64"},
@@ -844,6 +842,10 @@ def _project_to_preview(
     scale: float,
 ) -> tuple[float, float]:
     lon, lat = coordinate
-    x_m = math.radians(lon - config.region.center_lon) * EARTH_RADIUS_M * math.cos(math.radians(config.region.center_lat))
-    y_m = math.radians(lat - config.region.center_lat) * EARTH_RADIUS_M
+    x_m, y_m = lonlat_to_local_xy(
+        lon,
+        lat,
+        center_lon=config.region.center_lon,
+        center_lat=config.region.center_lat,
+    )
     return center_x + x_m * scale, center_y - y_m * scale
